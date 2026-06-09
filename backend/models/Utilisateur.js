@@ -1,3 +1,4 @@
+// backend/models/Utilisateur.js
 const pool = require('../config/db');
 
 /**
@@ -5,8 +6,24 @@ const pool = require('../config/db');
  * @description Modèle pour interagir avec la table "utilisateurs".
  */
 class Utilisateur {
+  
   /**
-   * Récupère tous les utilisateurs (sans le hash du mot de passe pour des raisons de sécurité).
+   * Trouve un utilisateur par son adresse email (utilisé pour la connexion).
+   * @param {string} email 
+   * @returns {Promise<Object|null>}
+   */
+  static async findByEmail(email) {
+    const query = `
+      SELECT id, role, nom_complet, adresse_email, hash_mot_de_passe, est_actif 
+      FROM utilisateurs 
+      WHERE adresse_email = $1
+    `;
+    const { rows } = await pool.query(query, [email]);
+    return rows[0];
+  }
+
+  /**
+   * Récupère tous les utilisateurs (sans le hash du mot de passe).
    * @returns {Promise<Array>} Liste des utilisateurs.
    */
   static async findAll() {
@@ -17,8 +34,8 @@ class Utilisateur {
 
   /**
    * Récupère un utilisateur par son ID.
-   * @param {string|number} id - L'identifiant de l'utilisateur.
-   * @returns {Promise<Object>} L'utilisateur trouvé.
+   * @param {string|number} id 
+   * @returns {Promise<Object>}
    */
   static async findById(id) {
     const query = 'SELECT id, role, nom_complet, adresse_email, est_actif, cree_le FROM utilisateurs WHERE id = $1';
@@ -28,8 +45,8 @@ class Utilisateur {
 
   /**
    * Crée un nouvel utilisateur.
-   * @param {Object} data - Données de l'utilisateur.
-   * @returns {Promise<Object>} L'utilisateur créé.
+   * @param {Object} data - Données (role, nom_complet, adresse_email, hash_mot_de_passe).
+   * @returns {Promise<Object>}
    */
   static async create(data) {
     const query = `
@@ -37,16 +54,19 @@ class Utilisateur {
       VALUES ($1, $2, $3, $4, COALESCE($5, true)) 
       RETURNING id, role, nom_complet, adresse_email, est_actif, cree_le;
     `;
-    const values = [data.role, data.nom_complet, data.adresse_email, data.hash_mot_de_passe, data.est_actif];
+    const values = [
+      data.role, 
+      data.nom_complet, 
+      data.adresse_email, 
+      data.hash_mot_de_passe, 
+      data.est_actif
+    ];
     const { rows } = await pool.query(query, values);
     return rows[0];
   }
 
   /**
    * Met à jour un utilisateur.
-   * @param {string|number} id - L'ID de l'utilisateur.
-   * @param {Object} data - Les nouvelles données.
-   * @returns {Promise<Object>} L'utilisateur mis à jour.
    */
   static async update(id, data) {
     const query = `
@@ -62,8 +82,6 @@ class Utilisateur {
 
   /**
    * Supprime un utilisateur.
-   * @param {string|number} id - L'ID de l'utilisateur.
-   * @returns {Promise<boolean>}
    */
   static async delete(id) {
     const query = 'DELETE FROM utilisateurs WHERE id = $1 RETURNING id';

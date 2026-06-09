@@ -2,6 +2,7 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const cookieParser = require('cookie-parser'); // Permet de lire et décoder les cookies HTTP-Only
 require('dotenv').config();
 
 // Initialisation de l'application Express
@@ -10,19 +11,25 @@ const app = express();
 // ==========================================
 // Middlewares globaux
 // ==========================================
-// helmet sécurise les en-têtes HTTP (protection de base contre les vulnérabilités web courantes)
+
+// 1. Sécurise les en-têtes HTTP contre les vulnérabilités courantes
 app.use(helmet()); 
 
-// cors permet à ton frontend (Next.js) de faire des requêtes vers cette API sans être bloqué par le navigateur
-app.use(cors());   
+// 2. Configure CORS pour autoriser le frontend Next.js et l'échange sécurisé de cookies
+app.use(cors({
+  origin: 'http://localhost:3000', // URL de ton application Next.js
+  credentials: true                // Permet l'envoi et la réception des cookies HTTP-Only
+}));   
 
-// express.json parse les requêtes entrantes pour que tu puisses accéder à req.body sous forme d'objet JavaScript
+// 3. Permet de lire le JSON dans le corps des requêtes (req.body)
 app.use(express.json()); 
+
+// 4. Active l'analyseur de cookies pour récupérer req.cookies dans l'authentification
+app.use(cookieParser());
 
 // ==========================================
 // Import des routes
 // ==========================================
-// On importe chaque module de route que nous avons créé dans le dossier "routes"
 const produitRoutes = require('./routes/produitRoutes');
 const utilisateurRoutes = require('./routes/utilisateurRoutes');
 const categorieRoutes = require('./routes/categorieRoutes');
@@ -34,8 +41,6 @@ const entrepotRoutes = require('./routes/entrepotRoutes');
 // ==========================================
 // Montage des routes (End-points API)
 // ==========================================
-// On attache chaque fichier de route à une URL de base spécifique
-// Ex: Les requêtes vers "http://localhost:5000/api/produits" iront dans produitRoutes
 app.use('/api/produits', produitRoutes);
 app.use('/api/utilisateurs', utilisateurRoutes);
 app.use('/api/categories', categorieRoutes);
@@ -47,18 +52,17 @@ app.use('/api/entrepots', entrepotRoutes);
 // ==========================================
 // Route de test (Health Check)
 // ==========================================
-// Permet de s'assurer rapidement que le serveur tourne quand tu visites la racine de l'API
 app.get('/', (req, res) => {
   res.json({ 
     message: 'Bienvenue sur l\'API G-Stock Pro',
-    status: 'En ligne'
+    status: 'En ligne',
+    security: 'Middlewares d\'authentification et de validation prêts'
   });
 });
 
 // ==========================================
 // Gestion des routes inexistantes (404)
 // ==========================================
-// Si l'utilisateur tape une route API qui n'est pas définie plus haut, on renvoie une erreur propre
 app.use((req, res) => {
   res.status(404).json({ message: 'Route introuvable' });
 });
@@ -66,7 +70,6 @@ app.use((req, res) => {
 // ==========================================
 // Démarrage du serveur
 // ==========================================
-// Utilise le port défini dans le fichier .env (5000 en général), sinon fallback sur 5000
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
@@ -74,5 +77,6 @@ app.listen(PORT, () => {
   console.log(`🚀 Serveur G-Stock Pro démarré avec succès !`);
   console.log(`📡 Port d'écoute : ${PORT}`);
   console.log(`🔗 URL de base  : http://localhost:${PORT}`);
+  console.log(`🔒 Mode sécurisé : Activé (Cookies & CORS configurés)`);
   console.log(`=================================================`);
 });
