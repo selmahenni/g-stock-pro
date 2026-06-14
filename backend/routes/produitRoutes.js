@@ -2,36 +2,44 @@
 const express = require('express');
 const router = express.Router();
 const produitController = require('../controllers/produitController');
+const { verifyToken, checkRole } = require('../middlewares/authMiddleware');
+
+// 🛡️ Protège toutes les routes de ce fichier (exige un utilisateur connecté)
+router.use(verifyToken);
 
 /**
  * @route   GET /api/produits
  * @desc    Récupérer tous les produits
- * @access  Public (à sécuriser plus tard avec JWT)
+ * @access  Technicien, Magasinier, Consultant (+ Super-Admin via Pass VIP)
  */
-router.get('/', produitController.getAllProduits);
+router.get('/', checkRole('technicien', 'magasinier', 'consultant'), produitController.getAllProduits);
 
 /**
  * @route   GET /api/produits/:id
  * @desc    Récupérer un produit par son ID
+ * @access  Technicien, Magasinier, Consultant
  */
-router.get('/:id', produitController.getProduitById);
+router.get('/:id', checkRole('technicien', 'magasinier', 'consultant'), produitController.getProduitById);
 
 /**
  * @route   POST /api/produits
  * @desc    Créer un nouveau produit
+ * @access  Magasinier (seul le magasinier gère le catalogue, en plus du Super-Admin)
  */
-router.post('/', produitController.createProduit);
+router.post('/', checkRole('magasinier', 'super_admin'), produitController.createProduit);
 
 /**
  * @route   PUT /api/produits/:id
  * @desc    Mettre à jour un produit existant
+ * @access  Magasinier
  */
-router.put('/:id', produitController.updateProduit);
+router.put('/:id', checkRole('magasinier'), produitController.updateProduit);
 
 /**
  * @route   DELETE /api/produits/:id
  * @desc    Supprimer un produit
+ * @access  Magasinier
  */
-router.delete('/:id', produitController.deleteProduit);
+router.delete('/:id', checkRole('magasinier'), produitController.deleteProduit);
 
 module.exports = router;

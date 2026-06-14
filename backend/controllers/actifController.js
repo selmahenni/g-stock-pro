@@ -1,15 +1,42 @@
+// controllers/actifController.js
 const Actif = require('../models/Actif');
 
 /**
  * @function getAllActifs
- * @description Récupère tout l'inventaire physique.
- * @param {Object} req - Objet de requête Express.
+ * @description Récupère tout l'inventaire physique avec un système de pagination.
+ * @param {Object} req - Objet de requête Express (accepte ?page=X&limit=Y).
  * @param {Object} res - Objet de réponse Express.
  */
 exports.getAllActifs = async (req, res) => {
   try {
-    const actifs = await Actif.findAll();
-    res.status(200).json(actifs);
+    // 1. Paramètres de pagination
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+
+    // 2. Récupération des données brutes
+    const tousLesActifs = await Actif.findAll();
+
+    // 3. Calcul de la pagination
+    const totalItems = tousLesActifs.length;
+    const totalPages = Math.ceil(totalItems / limit);
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    
+    // Découpage du tableau
+    const actifsPagines = tousLesActifs.slice(startIndex, endIndex);
+
+    // 4. Réponse
+    res.status(200).json({
+      metadata: {
+        total_items: totalItems,
+        total_pages: totalPages,
+        current_page: page,
+        per_page: limit,
+        has_next_page: page < totalPages,
+        has_previous_page: page > 1
+      },
+      actifs: actifsPagines
+    });
   } catch (error) {
     console.error('Erreur lors de la récupération des actifs:', error);
     res.status(500).json({ message: 'Erreur serveur interne' });
@@ -19,8 +46,6 @@ exports.getAllActifs = async (req, res) => {
 /**
  * @function createActif
  * @description Enregistre un nouveau matériel dans le parc.
- * @param {Object} req - Objet de requête Express.
- * @param {Object} res - Objet de réponse Express.
  */
 exports.createActif = async (req, res) => {
   try {

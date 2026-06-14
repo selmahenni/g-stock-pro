@@ -3,14 +3,41 @@ const Produit = require('../models/Produit');
 
 /**
  * @function getAllProduits
- * @description Récupère la liste de tous les produits.
- * @param {Object} req - L'objet de requête Express.
+ * @description Récupère la liste de tous les produits avec un système de pagination.
+ * @param {Object} req - L'objet de requête Express (accepte ?page=X&limit=Y).
  * @param {Object} res - L'objet de réponse Express.
  */
 exports.getAllProduits = async (req, res) => {
   try {
-    const produits = await Produit.findAll();
-    res.status(200).json(produits);
+    // 1. Récupération des paramètres de pagination (Valeurs par défaut : page 1, 10 éléments)
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+
+    // 2. Récupération de tous les produits depuis la base de données
+    const tousLesProduits = await Produit.findAll();
+
+    // 3. Calculs pour la pagination en mémoire
+    const totalItems = tousLesProduits.length;
+    const totalPages = Math.ceil(totalItems / limit);
+    
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    
+    // Découpage du tableau pour ne garder que la page demandée
+    const produitsPagines = tousLesProduits.slice(startIndex, endIndex);
+
+    // 4. Envoi de la réponse structurée
+    res.status(200).json({
+      metadata: {
+        total_items: totalItems,
+        total_pages: totalPages,
+        current_page: page,
+        per_page: limit,
+        has_next_page: page < totalPages,
+        has_previous_page: page > 1
+      },
+      produits: produitsPagines
+    });
   } catch (error) {
     console.error('Erreur lors de la récupération des produits:', error);
     res.status(500).json({ message: 'Erreur serveur interne' });
@@ -20,8 +47,6 @@ exports.getAllProduits = async (req, res) => {
 /**
  * @function getProduitById
  * @description Récupère les détails d'un produit spécifique.
- * @param {Object} req - L'objet de requête Express.
- * @param {Object} res - L'objet de réponse Express.
  */
 exports.getProduitById = async (req, res) => {
   try {
@@ -41,12 +66,9 @@ exports.getProduitById = async (req, res) => {
 /**
  * @function createProduit
  * @description Crée un nouveau produit dans le catalogue.
- * @param {Object} req - L'objet de requête Express (doit contenir le body).
- * @param {Object} res - L'objet de réponse Express.
  */
 exports.createProduit = async (req, res) => {
   try {
-    // Note: Dans un projet réel, il faudrait valider req.body ici (ex: avec Joi ou Zod)
     const nouveauProduit = await Produit.create(req.body);
     res.status(201).json({
       message: 'Produit créé avec succès',
@@ -61,8 +83,6 @@ exports.createProduit = async (req, res) => {
 /**
  * @function updateProduit
  * @description Met à jour les informations d'un produit existant.
- * @param {Object} req - L'objet de requête Express.
- * @param {Object} res - L'objet de réponse Express.
  */
 exports.updateProduit = async (req, res) => {
   try {
@@ -85,8 +105,6 @@ exports.updateProduit = async (req, res) => {
 /**
  * @function deleteProduit
  * @description Supprime un produit du système.
- * @param {Object} req - L'objet de requête Express.
- * @param {Object} res - L'objet de réponse Express.
  */
 exports.deleteProduit = async (req, res) => {
   try {
