@@ -1,24 +1,15 @@
 // controllers/mouvementController.js
 const Mouvement = require('../models/Mouvement');
-const Produit = require('../models/Produit'); // Ajout du modèle Produit
-const notificationService = require('../services/notificationService'); // Ajout du service de notification
+const pool = require('../config/db');
+const notificationService = require('../services/notificationService');
 
-/**
- * @function getAllMouvements
- * @description Récupère l'historique des mouvements avec un système de pagination.
- * @param {Object} req - Objet de requête Express (accepte ?page=X&limit=Y).
- * @param {Object} res - Objet de réponse Express.
- */
 exports.getAllMouvements = async (req, res) => {
   try {
-    // 1. Paramètres de pagination
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
 
-    // 2. Extraction complète depuis le modèle
     const tousLesMouvements = await Mouvement.findAll();
 
-    // 3. Application de la pagination "en mémoire"
     const totalItems = tousLesMouvements.length;
     const totalPages = Math.ceil(totalItems / limit);
     const startIndex = (page - 1) * limit;
@@ -26,7 +17,6 @@ exports.getAllMouvements = async (req, res) => {
     
     const mouvementsPagines = tousLesMouvements.slice(startIndex, endIndex);
 
-    // 4. Envoi au client
     res.status(200).json({
       metadata: {
         total_items: totalItems,
@@ -44,37 +34,77 @@ exports.getAllMouvements = async (req, res) => {
   }
 };
 
-/**
- * @function createMouvement
- * @description Enregistre un nouveau mouvement de stock et déclenche une alerte email si le seuil critique est atteint.
- * @param {Object} req - Objet de requête Express contenant les détails du mouvement.
- * @param {Object} res - Objet de réponse Express.
- */
 exports.createMouvement = async (req, res) => {
   try {
-    // 1. Création et enregistrement du mouvement en base de données
+    // 1. On extrait le type_mouvement en plus pour nos calculs
+    const { actif_id, entrepot_id, type_mouvement } = req.body;
+
+    // 2. Enregistrement du mouvement en base de données
     const nouveauMouvement = await Mouvement.create(req.body);
 
-    // 2. Logique de Notification : Vérification du seuil critique
-    if (req.body.produit_id) {
-      // On récupère les informations mises à jour du produit concerné
-      const produitMisAJour = await Produit.findById(req.body.produit_id);
+    // 3. LOGIQUE GLOBALE (Mise à jour Stock + Notification)
+    if (actif_id && entrepot_id) {
+      
+      // A. Récupérer le produit lié à cet actif
+      const infoProduitQuery = `
+        SELECT a.produit_id, p.libelle, p.stock_critique 
+        FROM actifs a
+        JOIN produits p ON a.produit_id = p.id
+        WHERE a.id = $1
+      `;
+      const { rows: produitRows } = await pool.query(infoProduitQuery, [actif_id]);
 
-      // On s'assure que le produit existe ET que sa quantité est passée sous le seuil
-      if (produitMisAJour && produitMisAJour.quantite_actuelle <= produitMisAJour.seuil_alerte) {
+      if (produitRows.length > 0) {
+        const produit = produitRows[0];
+
+        // B. Chercher la ligne de stock existante pour ce produit et cet entrepôt
+        const checkStockQuery = `SELECT id, quantite FROM stocks WHERE produit_id = $1 AND entrepot_id = $2`;
+        const { rows: stockRows } = await pool.query(checkStockQuery, [produit.produit_id, entrepot_id]);
         
-        // Liste temporaire des emails (à terme, tu pourras les récupérer depuis ta table Utilisateurs)
-        const emailsMagasiniers = ['super_admin@gstockpro.com', 'magasinier@gstockpro.com'];
-        
-        // On déclenche le service en arrière-plan (sans await) pour ne pas ralentir la réponse HTTP
-        notificationService.alerterRuptureStock(produitMisAJour, emailsMagasiniers)
-          .catch(err => console.error("❌ Erreur lors de l'envoi de l'alerte email:", err));
+        let quantiteActuelle = 0;
+
+        // C. Mise à jour de la table "stocks"
+        if (stockRows.length > 0) {
+          quantiteActuelle = stockRows[0].quantite;
+          
+          // Calcul (+1 si entrée, -1 si sortie) car on bouge un actif (1 unité)
+          if (type_mouvement === 'entree') quantiteActuelle += 1;
+          if (type_mouvement === 'sortie') quantiteActuelle -= 1;
+
+          // Mise à jour en base
+          await pool.query(
+            `UPDATE stocks SET quantite = $1, mis_a_jour_le = CURRENT_TIMESTAMP WHERE id = $2`, 
+            [quantiteActuelle, stockRows[0].id]
+          );
+        } else {
+          // Si aucune ligne de stock n'existe, on la crée
+          if (type_mouvement === 'entree') quantiteActuelle = 1;
+          // (Si c'est une sortie, on laisse à 0 ou en négatif selon ta règle métier)
+          
+          await pool.query(
+            `INSERT INTO stocks (produit_id, entrepot_id, quantite) VALUES ($1, $2, $3)`, 
+            [produit.produit_id, entrepot_id, quantiteActuelle]
+          );
+        }
+
+        // D. Comparaison avec le seuil critique pour la notification
+        if (quantiteActuelle <= produit.stock_critique) {
+          const emailsMagasiniers = ['super_admin@gstockpro.com', 'magasinier@gstockpro.com'];
+          
+          const produitPourAlerte = {
+            libelle: produit.libelle,
+            quantite_actuelle: quantiteActuelle,
+            stock_critique: produit.stock_critique
+          };
+
+          notificationService.alerterRuptureStock(produitPourAlerte, emailsMagasiniers)
+            .catch(err => console.error("❌ Erreur lors de l'envoi de l'alerte email:", err));
+        }
       }
     }
 
-    // 3. Réponse de succès au client
     res.status(201).json({
-      message: "Mouvement enregistré avec succès.",
+      message: "Mouvement et stock mis à jour avec succès.",
       mouvement: nouveauMouvement
     });
   } catch (error) { 

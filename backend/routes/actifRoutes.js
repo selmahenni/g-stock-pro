@@ -12,13 +12,13 @@ router.use(verifyToken);
  * @desc    Récupérer tout l'inventaire physique
  * @access  Technicien, Magasinier, Consultant
  */
-router.get('/', checkRole('technicien', 'magasinier', 'consultant'), actifController.getAllActifs);
+router.get('/', checkRole('super_admin','technicien', 'magasinier', 'consultant'), actifController.getAllActifs);
 
 /**
  * @route   POST /api/actifs
  * @desc    Enregistrer un nouvel actif matériel
  * @access  Magasinier
  */
-router.post('/', checkRole('magasinier'), actifController.createActif);
+router.post('/', checkRole('super_admin','magasinier'), actifController.createActif);
 
 module.exports = router;

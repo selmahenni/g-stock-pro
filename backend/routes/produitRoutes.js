@@ -12,14 +12,14 @@ router.use(verifyToken);
  * @desc    Récupérer tous les produits
  * @access  Technicien, Magasinier, Consultant (+ Super-Admin via Pass VIP)
  */
-router.get('/', checkRole('technicien', 'magasinier', 'consultant'), produitController.getAllProduits);
+router.get('/', checkRole('super_admin','technicien', 'magasinier', 'consultant'), produitController.getAllProduits);
 
 /**
  * @route   GET /api/produits/:id
  * @desc    Récupérer un produit par son ID
  * @access  Technicien, Magasinier, Consultant
  */
-router.get('/:id', checkRole('technicien', 'magasinier', 'consultant'), produitController.getProduitById);
+router.get('/:id', checkRole('super_admin','technicien', 'magasinier', 'consultant'), produitController.getProduitById);
 
 /**
  * @route   POST /api/produits
@@ -33,13 +33,13 @@ router.post('/', checkRole('magasinier', 'super_admin'), produitController.creat
  * @desc    Mettre à jour un produit existant
  * @access  Magasinier
  */
-router.put('/:id', checkRole('magasinier'), produitController.updateProduit);
+router.put('/:id', checkRole('super_admin','magasinier'), produitController.updateProduit);
 
 /**
  * @route   DELETE /api/produits/:id
  * @desc    Supprimer un produit
  * @access  Magasinier
  */
-router.delete('/:id', checkRole('magasinier'), produitController.deleteProduit);
+router.delete('/:id', checkRole('super_admin','magasinier'), produitController.deleteProduit);
 
 module.exports = router;
