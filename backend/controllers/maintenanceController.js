@@ -1,31 +1,21 @@
 // controllers/maintenanceController.js
 const Maintenance = require('../models/Maintenance');
+const maintenanceService = require('../services/maintenanceService');
 
 /**
  * @function getAllMaintenances
- * @description Récupère l'historique des maintenances avec un système de pagination.
- * @param {Object} req - Objet de requête Express (accepte ?page=X&limit=Y).
- * @param {Object} res - Objet de réponse Express.
+ * @description Historique paginé de tous les tickets de maintenance.
  */
 exports.getAllMaintenances = async (req, res) => {
   try {
-    // 1. Paramètres de pagination (par défaut: page 1, 10 éléments)
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
 
-    // 2. Récupération de toutes les données depuis la base
-    const toutesLesMaintenances = await Maintenance.findAll();
-
-    // 3. Calculs pour la pagination en mémoire
-    const totalItems = toutesLesMaintenances.length;
+    const tickets = await Maintenance.findAll();
+    const totalItems = tickets.length;
     const totalPages = Math.ceil(totalItems / limit);
     const startIndex = (page - 1) * limit;
-    const endIndex = startIndex + limit;
 
-    // Découpage du tableau
-    const maintenancesPagines = toutesLesMaintenances.slice(startIndex, endIndex);
-
-    // 4. Envoi de la réponse structurée
     res.status(200).json({
       metadata: {
         total_items: totalItems,
@@ -33,117 +23,111 @@ exports.getAllMaintenances = async (req, res) => {
         current_page: page,
         per_page: limit,
         has_next_page: page < totalPages,
-        has_previous_page: page > 1
+        has_previous_page: page > 1,
       },
-      maintenances: maintenancesPagines
+      maintenances: tickets.slice(startIndex, startIndex + limit),
     });
   } catch (error) {
-    console.error('Erreur lors de la récupération des maintenances:', error);
+    console.error('Erreur (getAllMaintenances):', error);
     res.status(500).json({ message: 'Erreur serveur interne' });
   }
 };
 
 /**
  * @function getMaintenanceById
- * @description Récupère les détails d'un rapport de maintenance spécifique.
- * @param {Object} req - Objet de requête Express.
- * @param {Object} res - Objet de réponse Express.
+ * @description Détail d'un ticket de maintenance.
  */
 exports.getMaintenanceById = async (req, res) => {
   try {
-    const id = req.params.id;
-    const maintenance = await Maintenance.findById(id);
-
-    if (!maintenance) {
-      return res.status(404).json({ message: 'Rapport de maintenance non trouvé.' });
-    }
-    
-    res.status(200).json(maintenance);
+    const ticket = await Maintenance.findById(req.params.id);
+    if (!ticket) return res.status(404).json({ message: 'Ticket de maintenance non trouvé.' });
+    res.status(200).json(ticket);
   } catch (error) {
-    console.error('Erreur lors de la récupération de la maintenance:', error);
+    console.error('Erreur (getMaintenanceById):', error);
     res.status(500).json({ message: 'Erreur serveur interne' });
   }
 };
 
 /**
- * @function createMaintenance
- * @description Enregistre un nouveau rapport de maintenance.
- * @param {Object} req - L'objet de requête Express contenant le corps (body).
- * @param {Object} res - L'objet de réponse Express.
+ * @function getMaintenancesByActif
+ * @description Historique de maintenance d'un actif (route imbriquée /actifs/:id/maintenances).
  */
-exports.createMaintenance = async (req, res) => {
+exports.getMaintenancesByActif = async (req, res) => {
   try {
-    const { actif_id, rapport } = req.body;
-
-    // Validation de base : on doit au moins savoir quel matériel est réparé
-    if (!actif_id) {
-      return res.status(400).json({ 
-        message: 'L\'ID de l\'actif (actif_id) est obligatoire pour enregistrer une maintenance.' 
-      });
-    }
-
-    /* 💡 ASTUCE DE PRO : 
-      Puisque ta route utilise le middleware `verifyToken`, tu as accès à `req.utilisateur`.
-      Au lieu de demander au front-end d'envoyer l'ID du technicien, tu peux le récupérer 
-      directement depuis le token de la personne connectée !
-      
-      Exemple : 
-      const dataMaintenance = {
-        ...req.body,
-        technicien_id: req.utilisateur.id // On force l'ID de la personne qui fait la requête
-      };
-      const nouvelleMaintenance = await Maintenance.create(dataMaintenance);
-    */
-
-    const nouvelleMaintenance = await Maintenance.create(req.body);
-    
-    res.status(201).json({
-      message: 'Rapport de maintenance enregistré avec succès.',
-      maintenance: nouvelleMaintenance
-    });
+    const tickets = await Maintenance.findByActif(req.params.id);
+    res.status(200).json({ maintenances: tickets });
   } catch (error) {
-    console.error('Erreur lors de la création de la maintenance:', error);
-    res.status(500).json({ message: 'Erreur lors de l\'enregistrement de la maintenance.' });
+    console.error('Erreur (getMaintenancesByActif):', error);
+    res.status(500).json({ message: 'Erreur serveur interne' });
+  }
+};
+
+/**
+ * @function declarerPanne
+ * @description Déclare une panne (maintenance curative) sur un actif.
+ */
+exports.declarerPanne = async (req, res) => {
+  try {
+    const actifId = req.params.id;
+    const ticket = await maintenanceService.declarerPanne(actifId, {
+      rapport: req.body.rapport,
+      technicien_id: req.body.technicien_id || null,
+    });
+    res.status(201).json({ message: 'Panne déclarée. Les techniciens ont été notifiés.', maintenance: ticket });
+  } catch (error) {
+    console.error('Erreur (declarerPanne):', error);
+    res.status(500).json({ message: 'Erreur lors de la déclaration de la panne.' });
+  }
+};
+
+/**
+ * @function enregistrerEntretien
+ * @description Enregistre un entretien terminé (préventif/curatif) sur un actif et recalcule l'échéance.
+ */
+exports.enregistrerEntretien = async (req, res) => {
+  try {
+    const actifId = req.params.id;
+    const ticket = await maintenanceService.enregistrerEntretien(actifId, {
+      type_maintenance: req.body.type_maintenance,
+      rapport: req.body.rapport,
+      date_intervention: req.body.date_intervention,
+      cout: req.body.cout,
+      // Par défaut : le technicien connecté
+      technicien_id: req.body.technicien_id || req.utilisateur?.id || null,
+    });
+    res.status(201).json({ message: 'Entretien enregistré avec succès.', maintenance: ticket });
+  } catch (error) {
+    console.error('Erreur (enregistrerEntretien):', error);
+    res.status(500).json({ message: 'Erreur lors de l\'enregistrement de l\'entretien.' });
   }
 };
 
 /**
  * @function updateMaintenance
- * @description Met à jour un rapport de maintenance existant (ex: pour rajouter des notes).
+ * @description Met à jour un ticket (statut, technicien, rapport, coût...).
  */
 exports.updateMaintenance = async (req, res) => {
   try {
-    const id = req.params.id;
-    const maintenanceMiseAJour = await Maintenance.update(id, req.body);
-    
-    if (!maintenanceMiseAJour) {
-      return res.status(404).json({ message: 'Rapport non trouvé pour la mise à jour.' });
-    }
-    res.status(200).json({
-      message: 'Maintenance mise à jour avec succès.',
-      maintenance: maintenanceMiseAJour
-    });
+    const updated = await Maintenance.update(req.params.id, req.body);
+    if (!updated) return res.status(404).json({ message: 'Ticket non trouvé pour la mise à jour.' });
+    res.status(200).json({ message: 'Ticket mis à jour avec succès.', maintenance: updated });
   } catch (error) {
-    console.error('Erreur lors de la mise à jour de la maintenance:', error);
+    console.error('Erreur (updateMaintenance):', error);
     res.status(500).json({ message: 'Erreur lors de la mise à jour.' });
   }
 };
 
 /**
  * @function deleteMaintenance
- * @description Supprime un rapport de maintenance (Généralement réservé aux cas d'erreur de saisie).
+ * @description Supprime un ticket de maintenance.
  */
 exports.deleteMaintenance = async (req, res) => {
   try {
-    const id = req.params.id;
-    const estSupprime = await Maintenance.delete(id);
-    
-    if (!estSupprime) {
-      return res.status(404).json({ message: 'Rapport non trouvé pour la suppression.' });
-    }
-    res.status(200).json({ message: 'Rapport de maintenance supprimé avec succès.' });
+    const ok = await Maintenance.delete(req.params.id);
+    if (!ok) return res.status(404).json({ message: 'Ticket non trouvé pour la suppression.' });
+    res.status(200).json({ message: 'Ticket supprimé avec succès.' });
   } catch (error) {
-    console.error('Erreur lors de la suppression de la maintenance:', error);
+    console.error('Erreur (deleteMaintenance):', error);
     res.status(500).json({ message: 'Erreur lors de la suppression.' });
   }
 };

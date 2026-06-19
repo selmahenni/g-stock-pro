@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const mouvementController = require('../controllers/mouvementController');
-const { verifyToken, checkRole } = require('../middlewares/authMiddleware');
+const { verifyToken, requireRole } = require('../middlewares/authMiddleware');
 
 // 🛡️ Application du middleware d'authentification
 router.use(verifyToken);
@@ -10,17 +10,29 @@ router.use(verifyToken);
 /**
  * @route   GET /api/mouvements
  * @desc    Récupérer l'historique de tous les mouvements (entrées/sorties)
- * @access  Magasinier, Technicien, Consultant (pour lecture/audit)
+ * @access  Super-Admin, Magasinier, Consultant (pour lecture/audit)
  */
-router.get('/', checkRole('super_admin','magasinier', 'technicien', 'consultant'), mouvementController.getAllMouvements);
+router.get('/', requireRole(['super_admin', 'magasinier', 'consultant']), mouvementController.getAllMouvements);
 
 /**
  * @route   POST /api/mouvements
  * @desc    Enregistrer un nouveau mouvement
- * @access  Magasinier, Technicien (seuls ces rôles gèrent la manipulation physique)
+ * @access  Super-Admin, Magasinier
  */
-router.post('/', checkRole('super_admin','magasinier', 'technicien'), mouvementController.createMouvement);
+router.post('/', requireRole(['super_admin', 'magasinier']), mouvementController.createMouvement);
 
-// Note : En général, on ne met pas à jour ni ne supprime un mouvement pour garder une trace d'audit fiable.
+/**
+ * @route   PUT /api/mouvements/:id
+ * @desc    Modifier un mouvement existant
+ * @access  Super-Admin, Magasinier
+ */
+router.put('/:id', requireRole(['super_admin', 'magasinier']), mouvementController.updateMouvement);
+
+/**
+ * @route   DELETE /api/mouvements/:id
+ * @desc    Supprimer un mouvement
+ * @access  Super-Admin uniquement
+ */
+router.delete('/:id', requireRole(['super_admin']), mouvementController.deleteMouvement);
 
 module.exports = router;

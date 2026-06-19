@@ -1,49 +1,51 @@
 // models/Stock.js
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/database'); // Assure-toi que ce chemin correspond à ton fichier de config
+const pool = require('../config/db');
 
 /**
- * @module Stock
- * @description Modèle représentant la table 'stocks' dans Supabase.
- * Stocke la quantité totale précalculée d'un produit dans un entrepôt.
+ * @class Stock
+ * @description Accès aux lignes d'inventaire (table "stocks") : quantité d'un
+ * produit dans un entrepôt. Inclut un indicateur d'alerte (sous seuil critique).
  */
-const Stock = sequelize.define('Stock', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
-  },
-  produit_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'produits', // Doit correspondre exactement au nom de ta table produits
-      key: 'id'
+class Stock {
+  /**
+   * Récupère une page de lignes d'inventaire (pagination + recherche serveur).
+   * @param {Object} opts - { page, limit, search }
+   * @returns {Promise<{rows: Array, total: number}>}
+   */
+  static async findPaginated({ page = 1, limit = 10, search = '' } = {}) {
+    const offset = (page - 1) * limit;
+    const params = [];
+    let where = '';
+    if (search) {
+      params.push(`%${search}%`);
+      where = `WHERE (p.libelle ILIKE $1 OR p.sku ILIKE $1 OR e.nom ILIKE $1 OR s.numero_lot ILIKE $1)`;
     }
-  },
-  entrepot_id: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'entrepots', // Doit correspondre exactement au nom de ta table entrepots
-      key: 'id'
-    }
-  },
-  numero_lot: {
-    type: DataTypes.STRING(50),
-    allowNull: true // Permet les valeurs nulles si on ne gère pas par lot
-  },
-  quantite: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0
-  },
-  mis_a_jour_le: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
+
+    const { rows: cnt } = await pool.query(
+      `SELECT COUNT(*)::int AS total
+       FROM stocks s
+       LEFT JOIN produits p  ON s.produit_id  = p.id
+       LEFT JOIN entrepots e ON s.entrepot_id = e.id
+       ${where}`,
+      params
+    );
+
+    const dataParams = [...params, limit, offset];
+    const { rows } = await pool.query(
+      `SELECT s.id, s.produit_id, s.entrepot_id, s.numero_lot, s.quantite, s.mis_a_jour_le,
+              p.libelle AS produit_libelle, p.sku, p.stock_minimum, p.stock_critique,
+              e.nom AS entrepot_nom,
+              (p.stock_critique IS NOT NULL AND p.stock_critique > 0 AND s.quantite <= p.stock_critique) AS en_alerte
+       FROM stocks s
+       LEFT JOIN produits p  ON s.produit_id  = p.id
+       LEFT JOIN entrepots e ON s.entrepot_id = e.id
+       ${where}
+       ORDER BY en_alerte DESC, s.mis_a_jour_le DESC NULLS LAST, s.id DESC
+       LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
+      dataParams
+    );
+    return { rows, total: cnt[0].total };
   }
-}, {
-  tableName: 'stocks', // Fait le lien direct avec la table créée par le script SQL
-  timestamps: false    // Désactivé car 'mis_a_jour_le' gère déjà la date
-});
+}
 
 module.exports = Stock;

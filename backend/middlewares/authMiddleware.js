@@ -25,11 +25,11 @@ exports.verifyToken = (req, res, next) => {
 
 /**
  * Vérifie si le rôle de l'utilisateur l'autorise à accéder à la route (RBAC).
- * @param {...string} rolesPermis - Liste des rôles autorisés (ex: 'super_admin', 'magasinier').
+ * @param {Array<string>} allowedRoles - Tableau des rôles autorisés (ex: ['super_admin', 'magasinier']).
  */
-exports.checkRole = (...rolesPermis) => {
+exports.requireRole = (allowedRoles) => {
   return (req, res, next) => {
-    if (!req.utilisateur || !rolesPermis.includes(req.utilisateur.role)) {
+    if (!req.utilisateur || !allowedRoles.includes(req.utilisateur.role)) {
       return res.status(403).json({ message: 'Accès interdit : privilèges insuffisants.' });
     }
     next();

@@ -1,8 +1,8 @@
 // routes/maintenanceRoutes.js
 const express = require('express');
 const router = express.Router();
-const maintenanceController = require('../controllers/maintenanceController'); // Assure-toi que ce contrôleur existe
-const { verifyToken, checkRole } = require('../middlewares/authMiddleware');
+const maintenanceController = require('../controllers/maintenanceController');
+const { verifyToken, requireRole } = require('../middlewares/authMiddleware');
 
 // 🛡️ Application du middleware d'authentification
 router.use(verifyToken);
@@ -10,22 +10,31 @@ router.use(verifyToken);
 /**
  * @route   GET /api/maintenances
  * @desc    Récupérer l'historique des maintenances
- * @access  Technicien, Magasinier, Consultant
+ * @access  Super-Admin, Technicien, Consultant
  */
-router.get('/', checkRole('technicien', 'magasinier', 'consultant'), maintenanceController.getAllMaintenances);
-
-/**
- * @route   POST /api/maintenances
- * @desc    Enregistrer un nouveau rapport de maintenance
- * @access  Technicien (Réservé au rôle technique)
- */
-router.post('/', checkRole('super_admin','technicien'), maintenanceController.createMaintenance);
+router.get('/', requireRole(['super_admin', 'technicien', 'consultant']), maintenanceController.getAllMaintenances);
 
 /**
  * @route   GET /api/maintenances/:id
- * @desc    Voir les détails d'un rapport spécifique
- * @access  Technicien, Magasinier, Consultant
+ * @desc    Voir les détails d'un ticket spécifique
+ * @access  Super-Admin, Technicien, Consultant
  */
-router.get('/:id', checkRole('super_admin','technicien', 'magasinier', 'consultant'), maintenanceController.getMaintenanceById);
+router.get('/:id', requireRole(['super_admin', 'technicien', 'consultant']), maintenanceController.getMaintenanceById);
+
+/**
+ * @route   PUT /api/maintenances/:id
+ * @desc    Mettre à jour un ticket de maintenance
+ * @access  Super-Admin, Technicien
+ * @note    La création de tickets se fait via les actions sur l'actif
+ *          (POST /api/actifs/:id/panne et /api/actifs/:id/entretien).
+ */
+router.put('/:id', requireRole(['super_admin', 'technicien']), maintenanceController.updateMaintenance);
+
+/**
+ * @route   DELETE /api/maintenances/:id
+ * @desc    Supprimer un rapport de maintenance
+ * @access  Super-Admin uniquement
+ */
+router.delete('/:id', requireRole(['super_admin']), maintenanceController.deleteMaintenance);
 
 module.exports = router;

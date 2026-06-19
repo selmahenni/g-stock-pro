@@ -91,11 +91,127 @@ class NotificationService {
           `Intervention requise sur l'actif ${actif.numero_serie}.`,
           '/maintenances'
         ];
-        
+
         await pool.query(insertNotifQuery, valeursNotif);
       }
     } catch (error) {
       console.error("❌ Erreur interne dans notifierNouvelleMaintenance :", error);
+    }
+  }
+
+  /**
+   * @method notifierTechniciens
+   * @description Notifie tous les utilisateurs de rôle « technicien » (in-app + email)
+   * qu'un actif nécessite une intervention (panne déclarée ou échéance préventive).
+   * @param {Object} actif - { numero_serie, produit_libelle }.
+   * @param {Object} infos - { titre, message, lien }.
+   */
+  async notifierTechniciens(actif, { titre, message, lien }) {
+    try {
+      const { rows: techniciens } = await pool.query(
+        `SELECT id, nom_complet, adresse_email FROM utilisateurs WHERE role = 'technicien'`
+      );
+
+      const sujet = `🔧 G-Stock Pro : ${titre}`;
+      const contenuHtml = `
+        <h2>${titre}</h2>
+        <p>${message}</p>
+        <p>Consultez la fiche de l'actif pour intervenir.</p>
+      `;
+
+      for (const t of techniciens) {
+        await pool.query(
+          `INSERT INTO notifications (utilisateur_id, titre, type_notif, message, lien)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [t.id, titre, 'maintenance', message, lien || '/maintenances']
+        );
+        if (t.adresse_email) {
+          emailService.envoyerEmail(t.adresse_email, sujet, contenuHtml)
+            .catch(err => console.error('❌ Email technicien échoué:', err));
+        }
+      }
+    } catch (error) {
+      console.error("❌ Erreur interne dans notifierTechniciens :", error);
+    }
+  }
+
+  /**
+   * @method notifierMouvementEntrant
+   * @description Alerte tous les magasiniers (in-app + email) qu'un actif est entré en stock.
+   * @param {Object} actif - L'actif concerné (ex: { numero_serie, produit_libelle }).
+   */
+  async notifierMouvementEntrant(actif) {
+    try {
+      // Cibles : magasiniers + super_admins (responsables du stock entrant)
+      const { rows: destinataires } = await pool.query(
+        `SELECT id, nom_complet, adresse_email
+         FROM utilisateurs
+         WHERE role IN ('magasinier', 'super_admin')`
+      );
+
+      const produit = actif.produit_libelle ? ` (${actif.produit_libelle})` : '';
+      const sujet = `📦 G-Stock Pro : Entrée de stock`;
+      const message = `Entrée en stock de l'actif ${actif.numero_serie}${produit}.`;
+      const contenuHtml = `
+        <h2>Nouvelle entrée de stock</h2>
+        <p>L'actif <strong>${actif.numero_serie}</strong>${produit} vient d'être enregistré en entrée de stock.</p>
+        <p>Consultez le tableau de bord pour plus de détails.</p>
+      `;
+
+      for (const u of destinataires) {
+        // Notification in-app
+        await pool.query(
+          `INSERT INTO notifications (utilisateur_id, titre, type_notif, message, lien)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [u.id, 'Entrée de stock', 'mouvement', message, '/mouvements']
+        );
+        // Email (non bloquant pour la boucle)
+        if (u.adresse_email) {
+          emailService.envoyerEmail(u.adresse_email, sujet, contenuHtml)
+            .catch(err => console.error('❌ Email mouvement entrant échoué:', err));
+        }
+      }
+    } catch (error) {
+      console.error("❌ Erreur interne dans notifierMouvementEntrant :", error);
+    }
+  }
+
+  /**
+   * @method notifierNouveauProduit
+   * @description Alerte les magasiniers (et super-admins) qu'un produit a été
+   * ajouté au catalogue (in-app + email).
+   * @param {Object} produit - Le produit créé (ex: { libelle, sku }).
+   */
+  async notifierNouveauProduit(produit) {
+    try {
+      const { rows: destinataires } = await pool.query(
+        `SELECT id, nom_complet, adresse_email
+         FROM utilisateurs
+         WHERE role IN ('magasinier', 'super_admin')`
+      );
+
+      const ref = produit.sku ? ` (${produit.sku})` : '';
+      const sujet = `📦 G-Stock Pro : Nouveau produit ajouté`;
+      const message = `Le produit « ${produit.libelle} »${ref} a été ajouté au catalogue.`;
+      const contenuHtml = `
+        <h2>Nouveau produit au catalogue</h2>
+        <p>${message}</p>
+        <p>Pensez à enregistrer les actifs / le stock correspondant.</p>
+      `;
+
+      for (const u of destinataires) {
+        await pool.query(
+          `INSERT INTO notifications (utilisateur_id, titre, type_notif, message, lien)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [u.id, 'Nouveau produit', 'mouvement', message, '/produits']
+        );
+        if (u.adresse_email) {
+          emailService.envoyerEmail(u.adresse_email, sujet, contenuHtml)
+            .catch(err => console.error('❌ Email nouveau produit échoué:', err));
+        }
+      }
+    } catch (error) {
+      console.error("❌ Erreur interne dans notifierNouveauProduit :", error);
     }
   }
 }

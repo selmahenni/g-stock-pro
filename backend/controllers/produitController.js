@@ -1,5 +1,6 @@
 // controllers/produitController.js
 const Produit = require('../models/Produit');
+const notificationService = require('../services/notificationService');
 
 /**
  * @function getAllProduits
@@ -9,34 +10,24 @@ const Produit = require('../models/Produit');
  */
 exports.getAllProduits = async (req, res) => {
   try {
-    // 1. Récupération des paramètres de pagination (Valeurs par défaut : page 1, 10 éléments)
+    // Pagination + recherche côté serveur : on ne charge que la page demandée
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
+    const search = (req.query.search || '').trim();
 
-    // 2. Récupération de tous les produits depuis la base de données
-    const tousLesProduits = await Produit.findAll();
+    const { rows, total } = await Produit.findPaginated({ page, limit, search });
+    const totalPages = Math.ceil(total / limit) || 1;
 
-    // 3. Calculs pour la pagination en mémoire
-    const totalItems = tousLesProduits.length;
-    const totalPages = Math.ceil(totalItems / limit);
-    
-    const startIndex = (page - 1) * limit;
-    const endIndex = startIndex + limit;
-    
-    // Découpage du tableau pour ne garder que la page demandée
-    const produitsPagines = tousLesProduits.slice(startIndex, endIndex);
-
-    // 4. Envoi de la réponse structurée
     res.status(200).json({
       metadata: {
-        total_items: totalItems,
+        total_items: total,
         total_pages: totalPages,
         current_page: page,
         per_page: limit,
         has_next_page: page < totalPages,
-        has_previous_page: page > 1
+        has_previous_page: page > 1,
       },
-      produits: produitsPagines
+      produits: rows,
     });
   } catch (error) {
     console.error('Erreur lors de la récupération des produits:', error);
@@ -69,7 +60,13 @@ exports.getProduitById = async (req, res) => {
  */
 exports.createProduit = async (req, res) => {
   try {
-    const nouveauProduit = await Produit.create(req.body);
+    // Traçabilité : on enregistre l'auteur de la création depuis le token
+    const nouveauProduit = await Produit.create({ ...req.body, cree_par: req.utilisateur?.id ?? null });
+
+    // Notification aux magasiniers (et super-admins) : nouveau produit au catalogue (non bloquant)
+    notificationService.notifierNouveauProduit(nouveauProduit)
+      .catch(err => console.error('❌ Notification nouveau produit échouée:', err));
+
     res.status(201).json({
       message: 'Produit créé avec succès',
       produit: nouveauProduit
@@ -87,7 +84,8 @@ exports.createProduit = async (req, res) => {
 exports.updateProduit = async (req, res) => {
   try {
     const id = req.params.id;
-    const produitMisAJour = await Produit.update(id, req.body);
+    // Traçabilité : on enregistre l'auteur de la dernière modification
+    const produitMisAJour = await Produit.update(id, { ...req.body, modifie_par: req.utilisateur?.id ?? null });
     
     if (!produitMisAJour) {
       return res.status(404).json({ message: 'Produit non trouvé pour la mise à jour' });

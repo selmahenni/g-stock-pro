@@ -217,13 +217,80 @@ const getAllUtilisateurs = async (req, res) => {
 };
 
 
-// Stubs pour finaliser le CRUD plus tard
+/**
+ * @function getUtilisateurById
+ * @description Récupère un utilisateur par son ID (sans son mot de passe).
+ * @param {Object} req - Objet de requête Express.
+ * @param {Object} res - Objet de réponse Express.
+ */
+const getUtilisateurById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const utilisateur = await Utilisateur.findById(id);
+    if (!utilisateur) {
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
+    }
+    return res.status(200).json(utilisateur);
+  } catch (error) {
+    console.error("Erreur lors de la récupération de l'utilisateur :", error);
+    return res.status(500).json({ message: "Erreur serveur lors de la récupération", erreur: error.message });
+  }
+};
 
-const getUtilisateurById = async (req, res) => { res.status(501).json({ message: "Non implémenté" }); };
+/**
+ * @function updateUtilisateur
+ * @description Met à jour le profil d'un utilisateur (nom, email, rôle, statut).
+ * @param {Object} req - Objet de requête Express.
+ * @param {Object} res - Objet de réponse Express.
+ */
+const updateUtilisateur = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const utilisateurExistant = await Utilisateur.findById(id);
+    if (!utilisateurExistant) {
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
+    }
 
-const updateUtilisateur = async (req, res) => { res.status(501).json({ message: "Non implémenté" }); };
+    const { nom, nom_complet, adresse_email, role, est_actif } = req.body;
+    
+    // Fusion sécurisée des données envoyées avec les valeurs existantes
+    const dataToUpdate = {
+      nom_complet: nom_complet !== undefined ? nom_complet : (nom !== undefined ? nom : utilisateurExistant.nom_complet),
+      adresse_email: adresse_email !== undefined ? adresse_email : utilisateurExistant.adresse_email,
+      role: role !== undefined ? role : utilisateurExistant.role,
+      est_actif: est_actif !== undefined ? est_actif : utilisateurExistant.est_actif
+    };
 
-const deleteUtilisateur = async (req, res) => { res.status(501).json({ message: "Non implémenté" }); };
+    const utilisateurMisAJour = await Utilisateur.update(id, dataToUpdate);
+    return res.status(200).json({
+      message: "Utilisateur mis à jour avec succès",
+      utilisateur: utilisateurMisAJour
+    });
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour de l'utilisateur :", error);
+    return res.status(500).json({ message: "Erreur serveur lors de la mise à jour", erreur: error.message });
+  }
+};
+
+/**
+ * @function deleteUtilisateur
+ * @description Supprime un utilisateur du système.
+ * @param {Object} req - Objet de requête Express.
+ * @param {Object} res - Objet de réponse Express.
+ */
+const deleteUtilisateur = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const estSupprime = await Utilisateur.delete(id);
+    if (!estSupprime) {
+      return res.status(404).json({ message: "Utilisateur non trouvé ou déjà supprimé." });
+    }
+    return res.status(200).json({ message: "Utilisateur supprimé avec succès." });
+  } catch (error) {
+    console.error("Erreur lors de la suppression de l'utilisateur :", error);
+    return res.status(500).json({ message: "Erreur serveur lors de la suppression", erreur: error.message });
+  }
+};
 
 
 
