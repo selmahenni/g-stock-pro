@@ -3,20 +3,27 @@
 import React, { useEffect, useState } from 'react';
 import { Sun, Moon } from 'lucide-react';
 
+// Thèmes de marque (cf. tailwind.config.js) : clair « gstock » / sombre « gstock-dark ».
+const LIGHT = 'gstock';
+const DARK = 'gstock-dark';
+
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState('light');
+  const [theme, setTheme] = useState(LIGHT);
   const [mounted, setMounted] = useState(false);
 
   // Initialiser le thème au montage côté client
   useEffect(() => {
     setMounted(true);
-    const storedTheme = localStorage.getItem('theme') || 'light';
-    setTheme(storedTheme);
-    document.documentElement.setAttribute('data-theme', storedTheme);
+    const stored = localStorage.getItem('theme');
+    // Migration : l'ancien thème 'light' devient 'gstock'.
+    const initial = stored === DARK ? DARK : LIGHT;
+    setTheme(initial);
+    localStorage.setItem('theme', initial);
+    document.documentElement.setAttribute('data-theme', initial);
   }, []);
 
   const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light';
+    const newTheme = theme === DARK ? LIGHT : DARK;
     setTheme(newTheme);
     localStorage.setItem('theme', newTheme);
     document.documentElement.setAttribute('data-theme', newTheme);
@@ -32,7 +39,7 @@ export default function ThemeToggle() {
       <input 
         type="checkbox" 
         onChange={toggleTheme} 
-        checked={theme === 'dark'} 
+        checked={theme === DARK}
         aria-label="Toggle Theme"
       />
       

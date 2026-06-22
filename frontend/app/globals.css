@@ -2,6 +2,95 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   POLISH GLOBAL — rendu « SaaS premium » cohérent (G-Stock Pro)
+   ============================================================ */
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Couleur de sélection de texte cohérente avec le thème */
+  ::selection {
+    background-color: hsl(var(--p) / 0.18);
+    color: hsl(var(--pc));
+  }
+
+  /* Champs de formulaire : transition douce + focus ring élégant */
+  .input,
+  .select,
+  .textarea,
+  .file-input {
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  }
+  .input:focus,
+  .input:focus-within,
+  .select:focus,
+  .textarea:focus,
+  .file-input:focus {
+    outline: none;
+    border-color: hsl(var(--p) / 0.55);
+    box-shadow: 0 0 0 4px hsl(var(--p) / 0.12);
+  }
+
+  /* Boutons : micro-interaction au survol / clic */
+  .btn {
+    transition: transform 0.15s ease, box-shadow 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  }
+  .btn:hover {
+    transform: translateY(-1px);
+  }
+  .btn:active {
+    transform: translateY(0) scale(0.98);
+  }
+  /* On neutralise le translate sur les boutons-icônes circulaires (rendu plus net) */
+  .btn-circle:hover {
+    transform: none;
+  }
+}
+
+@layer components {
+  /* Carte interactive : léger soulèvement au survol */
+  .card-hover {
+    @apply transition-all duration-300;
+  }
+  .card-hover:hover {
+    @apply -translate-y-0.5;
+    box-shadow: theme('boxShadow.card-hover');
+  }
+}
+
+/* ---- Scrollbars discrètes et modernes ---- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--bc) / 0.2) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--bc) / 0.18);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--bc) / 0.3);
+}
+
+/* ============================================================
+   Animations décoratives (blobs d'arrière-plan)
+   ============================================================ */
 @layer utilities {
   .animate-blob {
     animation: blob 7s infinite;

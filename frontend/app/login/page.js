@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Mail, Lock, LogIn, Boxes, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Mail, Lock, LogIn, Boxes, AlertCircle, ShieldAlert } from 'lucide-react';
 import ThemeToggle from '../../components/ThemeToggle';
 
 export default function LoginPage() {
@@ -9,6 +9,17 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
+
+  // Message propre quand l'utilisateur est redirigé par le middleware (?error=unauthorized)
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('error') === 'unauthorized') {
+        setNotice("Vous devez être connecté pour accéder à cette page. Votre session a peut-être expiré.");
+      }
+    } catch { /* ignore */ }
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -72,7 +83,7 @@ export default function LoginPage() {
               <Boxes className="w-8 h-8" />
             </div>
             <div className="text-center">
-              <h2 className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+              <h2 className="text-2xl font-bold tracking-tight text-base-content">
                 G-Stock Pro
               </h2>
               <p className="text-sm text-base-content/60 font-medium mt-1">
@@ -81,12 +92,22 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {error && (
-            <div className="alert alert-error shadow-lg rounded-xl border border-rose-500/20 p-4 flex items-start gap-3 mb-6 animate-in slide-in-from-top-2 fade-in duration-300">
-              <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+          {notice && !error && (
+            <div className="alert shadow-lg rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 flex items-start gap-3 mb-6 animate-in slide-in-from-top-2 fade-in duration-300">
+              <ShieldAlert className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
               <div>
-                <h3 className="font-bold text-rose-800 text-sm">Échec de la connexion</h3>
-                <p className="text-xs text-rose-700/90 mt-0.5">{error}</p>
+                <h3 className="font-bold text-warning text-sm">Connexion requise</h3>
+                <p className="text-xs text-base-content/70 mt-0.5">{notice}</p>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="rounded-xl border border-error/25 bg-error/5 p-4 flex items-start gap-3 mb-6 animate-in slide-in-from-top-2 fade-in duration-300">
+              <AlertCircle className="w-5 h-5 text-error shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-bold text-error text-sm">Échec de la connexion</h3>
+                <p className="text-xs text-base-content/70 mt-0.5">{error}</p>
               </div>
             </div>
           )}

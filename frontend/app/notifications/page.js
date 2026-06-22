@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import {
   Bell, RefreshCw, AlertCircle, CheckCheck, Check, CheckCircle2,
-  AlertTriangle, Wrench, PackagePlus, Info,
+  AlertTriangle, Wrench, PackagePlus, Info, Mail,
 } from 'lucide-react';
 
 /**
@@ -64,7 +64,7 @@ export default function PageNotifications() {
   const typeMeta = {
     maintenance:  { label: 'Maintenance', cible: 'Technicien', icon: Wrench,        cls: 'text-sky-600 bg-sky-500/10 border-sky-500/20' },
     mouvement:    { label: 'Mouvement',   cible: 'Magasinier', icon: PackagePlus,   cls: 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20' },
-    alerte_stock: { label: 'Stock',       cible: 'Super-admin / Magasinier', icon: AlertTriangle, cls: 'text-rose-600 bg-rose-500/10 border-rose-500/20' },
+    alerte_stock: { label: 'Stock',       cible: 'Super-admin / Magasinier', icon: AlertTriangle, cls: 'text-error bg-rose-500/10 border-rose-500/20' },
   };
 
   // Compteurs par type
@@ -88,12 +88,12 @@ export default function PageNotifications() {
     : '';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-base-100 to-base-200/50 p-4 sm:p-6 md:p-8">
+    <div className="min-h-screen bg-base-200 p-4 sm:p-6 md:p-8">
       <div className="max-w-4xl mx-auto space-y-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-base-200 pb-6">
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent flex items-center gap-2">
+            <h1 className="text-3xl font-bold tracking-tight text-base-content flex items-center gap-2">
               <Bell className="w-7 h-7 text-primary" /> Notifications
             </h1>
             <p className="text-sm text-base-content/60 mt-1">
@@ -133,12 +133,12 @@ export default function PageNotifications() {
             <p className="text-sm text-base-content/60 font-medium animate-pulse">Chargement des notifications...</p>
           </div>
         ) : error ? (
-          <div className="alert alert-error shadow-lg rounded-2xl border border-rose-500/25 p-5 flex items-start gap-4">
-            <AlertCircle className="w-6 h-6 text-rose-600 mt-0.5 shrink-0" />
+          <div className="rounded-2xl border border-error/25 bg-error/5 p-5 flex items-start gap-4">
+            <AlertCircle className="w-6 h-6 text-error mt-0.5 shrink-0" />
             <div>
-              <h3 className="font-bold text-rose-800">Erreur</h3>
-              <p className="text-sm text-rose-700/80 mt-1">{error}</p>
-              <button onClick={fetchNotifications} className="btn btn-sm btn-outline border-rose-500/30 text-rose-800 font-semibold rounded-lg mt-4">Réessayer</button>
+              <h3 className="font-bold text-error">Erreur</h3>
+              <p className="text-sm text-base-content/70 mt-1">{error}</p>
+              <button onClick={fetchNotifications} className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Réessayer</button>
             </div>
           </div>
         ) : itemsFiltres.length === 0 ? (
@@ -170,6 +170,14 @@ export default function PageNotifications() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-base-content/90 group-hover:text-primary transition-colors">{n.titre}</span>
                         <span className={`badge badge-sm rounded-md font-semibold border ${m.cls}`}>{m.label}</span>
+                        {n.email_envoye && (
+                          <span
+                            className="badge badge-sm rounded-md font-semibold border text-violet-600 bg-violet-500/10 border-violet-500/20 gap-1"
+                            title="Cette notification vous a aussi été envoyée par e-mail"
+                          >
+                            <Mail className="w-3 h-3" /> E-mail
+                          </span>
+                        )}
                         {!n.est_lu && <span className="w-2 h-2 rounded-full bg-primary" />}
                       </div>
                       <p className="text-sm text-base-content/70 mt-1">{n.message}</p>

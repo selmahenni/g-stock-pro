@@ -75,7 +75,7 @@ export default function FicheProduit() {
       deploye:        { label: 'Déployé',        cls: 'bg-sky-500/10 text-sky-600 border-sky-500/20',             icon: Monitor },
       affecte:        { label: 'Affecté',        cls: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20',    icon: Monitor },
       en_maintenance: { label: 'En maintenance', cls: 'bg-amber-500/10 text-amber-600 border-amber-500/20',      icon: Clock },
-      reforme:        { label: 'Réformé',        cls: 'bg-rose-500/10 text-rose-600 border-rose-500/20',          icon: XCircle },
+      reforme:        { label: 'Réformé',        cls: 'bg-rose-500/10 text-error border-rose-500/20',          icon: XCircle },
     };
     const s = map[statut] || { label: statut || '—', cls: 'badge-ghost', icon: null };
     const Icon = s.icon;
@@ -87,7 +87,7 @@ export default function FicheProduit() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-base-100 to-base-200/50 p-4 sm:p-6 md:p-8">
+    <div className="min-h-screen bg-base-200 p-4 sm:p-6 md:p-8">
       <div className="max-w-6xl mx-auto space-y-8">
         {/* Barre de navigation retour */}
         <div className="flex items-center justify-between gap-4">
@@ -105,12 +105,12 @@ export default function FicheProduit() {
             <p className="text-sm text-base-content/60 font-medium animate-pulse">Chargement de la fiche produit...</p>
           </div>
         ) : error ? (
-          <div className="alert alert-error shadow-lg rounded-2xl border border-rose-500/25 p-5 flex items-start gap-4">
-            <AlertCircle className="w-6 h-6 text-rose-600 mt-0.5 shrink-0" />
+          <div className="rounded-2xl border border-error/25 bg-error/5 p-5 flex items-start gap-4">
+            <AlertCircle className="w-6 h-6 text-error mt-0.5 shrink-0" />
             <div>
-              <h3 className="font-bold text-rose-800">Erreur</h3>
-              <p className="text-sm text-rose-700/80 mt-1">{error}</p>
-              <Link href="/produits" className="btn btn-sm btn-outline border-rose-500/30 text-rose-800 font-semibold rounded-lg mt-4">Retour au catalogue</Link>
+              <h3 className="font-bold text-error">Erreur</h3>
+              <p className="text-sm text-base-content/70 mt-1">{error}</p>
+              <Link href="/produits" className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Retour au catalogue</Link>
             </div>
           </div>
         ) : produit && (
@@ -130,7 +130,7 @@ export default function FicheProduit() {
                 <div className="flex items-center gap-2 text-xs font-mono text-base-content/50">
                   <Hash className="w-3.5 h-3.5" /> {produit.sku || `Produit #${produit.id}`}
                 </div>
-                <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent mt-1">
+                <h1 className="text-3xl font-bold tracking-tight text-base-content mt-1">
                   {produit.libelle}
                 </h1>
 

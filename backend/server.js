@@ -28,6 +28,10 @@ app.use(express.json());
 // 4. Active l'analyseur de cookies pour récupérer req.cookies dans l'authentification
 app.use(cookieParser());
 
+// 4 bis. Journalisation de sécurité (audit) : trace les mutations réussies (POST/PUT/PATCH/DELETE)
+const { journaliser } = require('./middlewares/auditMiddleware');
+app.use(journaliser);
+
 // 5. Sert les images téléversées en statique (/uploads).
 //    CORP 'cross-origin' pour autoriser l'affichage depuis le front (port 3000).
 app.use(
@@ -52,6 +56,8 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const stockRoutes = require('./routes/stockRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
+const journalRoutes = require('./routes/journalRoutes');
+const messageRoutes = require('./routes/messageRoutes');
 
 // ==========================================
 // Montage des routes (End-points API)
@@ -68,6 +74,8 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/stocks', stockRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/journaux', journalRoutes);
+app.use('/api/messages', messageRoutes);
 
 // ==========================================
 // Route de test (Health Check)

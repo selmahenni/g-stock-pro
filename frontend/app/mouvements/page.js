@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import DataTable from '../../components/DataTable';
 import ResourceModal from '../../components/ResourceModal';
+import { MovementBadge } from '../../components/StatusBadge';
 import usePermissions from '../../hooks/usePermissions';
 import { genererBonDeSortie } from '../../lib/pdfDocuments';
 import {
@@ -28,6 +29,7 @@ export default function PageMouvements() {
     produit_id: '',      // filtre uniquement (non envoyé) : restreint la liste d'actifs
     actif_id: '',
     type_mouvement: 'entree',
+    destinataire: '',
     notes: '',
   });
   const { canAccess } = usePermissions();
@@ -121,13 +123,14 @@ export default function PageMouvements() {
         body: JSON.stringify({
           actif_id: Number(formData.actif_id),
           type_mouvement: formData.type_mouvement,
+          destinataire: formData.destinataire || null,
           notes: formData.notes || null,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Erreur lors de la création du mouvement');
       setShowCreateModal(false);
-      setFormData({ produit_id: '', actif_id: '', type_mouvement: 'entree', notes: '' });
+      setFormData({ produit_id: '', actif_id: '', type_mouvement: 'entree', destinataire: '', notes: '' });
       setRefreshKey(p => p + 1);
     } catch (err) {
       setFormError(err.message);
@@ -144,24 +147,13 @@ export default function PageMouvements() {
     {
       accessorKey: 'id',
       header: 'ID',
+      meta: { align: 'right' },
       cell: (info) => <span className="font-mono text-xs text-base-content/50">#{info.getValue()}</span>,
     },
     {
       accessorKey: 'type_mouvement',
       header: 'Type',
-      cell: (info) => {
-        const val = info.getValue();
-        if (val === 'entree') return (
-          <span className="inline-flex items-center gap-1.5 badge badge-sm py-2 px-2.5 rounded-lg font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-            <ArrowDownCircle className="w-3 h-3" /> Entrée
-          </span>
-        );
-        return (
-          <span className="inline-flex items-center gap-1.5 badge badge-sm py-2 px-2.5 rounded-lg font-semibold bg-rose-500/10 text-rose-600 border border-rose-500/20">
-            <ArrowUpCircle className="w-3 h-3" /> Sortie
-          </span>
-        );
-      },
+      cell: (info) => <MovementBadge type={info.getValue()} />,
     },
     {
       accessorKey: 'numero_serie',
@@ -172,6 +164,15 @@ export default function PageMouvements() {
       accessorKey: 'effectue_par_nom',
       header: 'Effectué par',
       cell: (info) => <span className="font-medium">{info.getValue() || '—'}</span>,
+    },
+    {
+      accessorKey: 'destinataire',
+      header: 'Destinataire',
+      cell: (info) => {
+        const d = info.getValue();
+        if (!d) return <span className="text-base-content/40">—</span>;
+        return <span className="text-sm text-base-content/80">{d}</span>;
+      },
     },
     {
       accessorKey: 'notes',
@@ -201,13 +202,13 @@ export default function PageMouvements() {
           <div className="flex items-center gap-1">
             <button
               onClick={() => genererBonDeSortie(m)}
-              className="btn btn-ghost btn-xs rounded-lg text-rose-500 hover:bg-rose-500/10 gap-1"
+              className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-error hover:bg-base-200 gap-1"
               title={estSortie ? 'Générer le bon de sortie (PDF)' : "Générer le bon d'entrée (PDF)"}
             >
               <FileDown className="w-3.5 h-3.5" /> {estSortie ? 'Bon de sortie' : "Bon d'entrée"}
             </button>
-            {canUpdate && <button className="btn btn-ghost btn-xs rounded-lg text-sky-500 hover:bg-sky-500/10"><Pencil className="w-3.5 h-3.5" /></button>}
-            {canDelete && <button onClick={() => handleDelete(m.id)} className="btn btn-ghost btn-xs rounded-lg text-rose-500 hover:bg-rose-500/10"><Trash2 className="w-3.5 h-3.5" /></button>}
+            {canUpdate && <button className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-primary hover:bg-base-200"><Pencil className="w-3.5 h-3.5" /></button>}
+            {canDelete && <button onClick={() => handleDelete(m.id)} className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-error hover:bg-base-200"><Trash2 className="w-3.5 h-3.5" /></button>}
           </div>
         );
       },
@@ -215,11 +216,11 @@ export default function PageMouvements() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-base-100 to-base-200/50 p-4 sm:p-6 md:p-8">
+    <div className="min-h-screen bg-base-200 p-4 sm:p-6 md:p-8">
       <div className="max-w-7xl mx-auto space-y-8">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-base-200 pb-6">
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold tracking-tight text-base-content">
               Historique des Mouvements
             </h1>
             <p className="text-sm text-base-content/60 mt-1">Traçabilité complète des entrées et sorties de stock.</p>
@@ -258,10 +259,10 @@ export default function PageMouvements() {
               <p className="text-sm text-base-content/60 font-medium animate-pulse">Chargement de l'historique...</p>
             </div>
           ) : error ? (
-            <div className="alert alert-error shadow-lg rounded-2xl border border-rose-500/25 p-5 flex items-start gap-4">
-              <AlertCircle className="w-6 h-6 text-rose-600 mt-0.5 shrink-0" />
-              <div><h3 className="font-bold text-rose-800">Erreur</h3><p className="text-sm text-rose-700/80 mt-1">{error}</p>
-                <button onClick={() => setRefreshKey(p => p + 1)} className="btn btn-sm btn-outline border-rose-500/30 text-rose-800 font-semibold rounded-lg mt-4">Réessayer</button>
+            <div className="rounded-2xl border border-error/25 bg-error/5 p-5 flex items-start gap-4">
+              <AlertCircle className="w-6 h-6 text-error mt-0.5 shrink-0" />
+              <div><h3 className="font-bold text-error">Erreur</h3><p className="text-sm text-base-content/70 mt-1">{error}</p>
+                <button onClick={() => setRefreshKey(p => p + 1)} className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Réessayer</button>
               </div>
             </div>
           ) : (
@@ -289,6 +290,11 @@ export default function PageMouvements() {
                 value: a.id,
                 label: `${a.numero_serie}${a.produit_libelle ? ` - ${a.produit_libelle}` : ''}${a.entrepot_nom ? ` · ${a.entrepot_nom}` : ''}`,
               })),
+            },
+            {
+              name: 'destinataire',
+              label: formData.type_mouvement === 'sortie' ? 'Destinataire / Bénéficiaire' : 'Destinataire (optionnel)',
+              placeholder: formData.type_mouvement === 'sortie' ? 'Nom du service, de la personne ou du chantier…' : 'Optionnel',
             },
             { name: 'notes', label: 'Notes', type: 'textarea', placeholder: 'Motif, référence ou observation' },
           ]}

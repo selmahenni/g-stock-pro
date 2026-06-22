@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import ResourceModal from '../../../components/ResourceModal';
+import StatusBadge from '../../../components/StatusBadge';
 import usePermissions from '../../../hooks/usePermissions';
 import { genererRapportMaintenance } from '../../../lib/pdfDocuments';
 import {
@@ -99,33 +100,14 @@ export default function FicheActif() {
     }
   };
 
-  // ── Affichage ───────────────────────────────────────────────────────
-  const statutBadge = (statut) => {
-    const map = {
-      en_stock:    { label: 'En stock',    cls: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20', icon: CheckCircle2 },
-      affecte:     { label: 'Affecté',     cls: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20',    icon: Monitor },
-      maintenance: { label: 'Maintenance', cls: 'bg-amber-500/10 text-amber-600 border-amber-500/20',       icon: Clock },
-      rebut:       { label: 'Rebut',       cls: 'bg-rose-500/10 text-rose-600 border-rose-500/20',          icon: XCircle },
-    };
-    const s = map[statut] || { label: statut || '—', cls: 'badge-ghost', icon: null };
-    const Icon = s.icon;
-    return <span className={`inline-flex items-center gap-1.5 badge py-3 px-3 rounded-lg font-semibold border ${s.cls}`}>{Icon && <Icon className="w-3.5 h-3.5" />} {s.label}</span>;
-  };
+  // ── Affichage (badges unifiés via le composant partagé StatusBadge) ──
+  const statutBadge = (statut) => <StatusBadge status={statut} size="md" />;
 
   const typeBadge = (type) => type === 'curatif'
-    ? <span className="inline-flex items-center gap-1 badge badge-sm rounded-md font-semibold border bg-rose-500/10 text-rose-600 border-rose-500/20"><ShieldAlert className="w-3 h-3" /> Curatif</span>
-    : <span className="inline-flex items-center gap-1 badge badge-sm rounded-md font-semibold border bg-sky-500/10 text-sky-600 border-sky-500/20"><CalendarClock className="w-3 h-3" /> Préventif</span>;
+    ? <StatusBadge label="Curatif" tone="error" icon={ShieldAlert} />
+    : <StatusBadge label="Préventif" tone="info" icon={CalendarClock} />;
 
-  const ticketStatutBadge = (s) => {
-    const map = {
-      planifie: 'bg-sky-500/10 text-sky-600 border-sky-500/20',
-      en_cours: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
-      termine:  'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
-      annule:   'bg-base-300 text-base-content/50 border-base-300',
-    };
-    const labels = { planifie: 'Planifié', en_cours: 'En cours', termine: 'Terminé', annule: 'Annulé' };
-    return <span className={`badge badge-sm rounded-md font-semibold border ${map[s] || 'badge-ghost'}`}>{labels[s] || s}</span>;
-  };
+  const ticketStatutBadge = (s) => <StatusBadge status={s} />;
 
   const fmtDate = (d, withTime = false) => d
     ? new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', ...(withTime ? { hour: '2-digit', minute: '2-digit' } : {}) })
@@ -135,7 +117,7 @@ export default function FicheActif() {
   const enRetard = prochaine && prochaine.getTime() <= Date.now();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-base-100 to-base-200/50 p-4 sm:p-6 md:p-8">
+    <div className="min-h-screen bg-base-200 p-4 sm:p-6 md:p-8">
       <div className="max-w-5xl mx-auto space-y-8">
         {/* Barre de navigation */}
         <div className="flex items-center justify-between gap-4">
@@ -151,19 +133,19 @@ export default function FicheActif() {
             <p className="text-sm text-base-content/60 font-medium animate-pulse">Chargement de la fiche actif...</p>
           </div>
         ) : error ? (
-          <div className="alert alert-error shadow-lg rounded-2xl border border-rose-500/25 p-5 flex items-start gap-4">
-            <AlertCircle className="w-6 h-6 text-rose-600 mt-0.5 shrink-0" />
+          <div className="rounded-2xl border border-error/25 bg-error/5 p-5 flex items-start gap-4">
+            <AlertCircle className="w-6 h-6 text-error mt-0.5 shrink-0" />
             <div>
-              <h3 className="font-bold text-rose-800">Erreur</h3>
-              <p className="text-sm text-rose-700/80 mt-1">{error}</p>
-              <Link href="/actifs" className="btn btn-sm btn-outline border-rose-500/30 text-rose-800 font-semibold rounded-lg mt-4">Retour à l'inventaire</Link>
+              <h3 className="font-bold text-error">Erreur</h3>
+              <p className="text-sm text-base-content/70 mt-1">{error}</p>
+              <Link href="/actifs" className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Retour à l'inventaire</Link>
             </div>
           </div>
         ) : actif && (
           <>
             {/* Bandeau d'alerte échéance dépassée */}
             {enRetard && (
-              <div className="alert rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-700 flex items-start gap-3 p-4">
+              <div className="alert rounded-2xl border border-amber-500/30 bg-amber-500/10 text-warning flex items-start gap-3 p-4">
                 <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
                 <span className="text-sm font-medium">Maintenance préventive échue depuis le {fmtDate(prochaine, true)}. Une intervention est requise.</span>
               </div>
@@ -174,7 +156,7 @@ export default function FicheActif() {
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 text-xs font-mono text-base-content/50"><Hash className="w-3.5 h-3.5" /> Actif #{actif.id}</div>
-                  <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent mt-1 flex items-center gap-2">
+                  <h1 className="text-3xl font-bold tracking-tight text-base-content mt-1 flex items-center gap-2">
                     <Layers className="w-7 h-7 text-primary" /> {actif.numero_serie}
                   </h1>
                   <div className="mt-3">{statutBadge(actif.statut)}</div>
@@ -182,7 +164,7 @@ export default function FicheActif() {
                 {/* Actions */}
                 <div className="flex flex-wrap gap-2">
                   {canPanne && (
-                    <button onClick={() => openModal('panne')} className="btn btn-sm rounded-xl gap-2 bg-rose-500/10 text-rose-600 border border-rose-500/20 hover:bg-rose-500/20">
+                    <button onClick={() => openModal('panne')} className="btn btn-sm rounded-xl gap-2 bg-rose-500/10 text-error border border-rose-500/20 hover:bg-rose-500/20">
                       <ShieldAlert className="w-4 h-4" /> Déclarer une panne
                     </button>
                   )}
@@ -250,7 +232,7 @@ export default function FicheActif() {
                           <td className="py-3 px-5">
                             <button
                               onClick={() => genererRapportMaintenance({ ...t, actif_serie: actif.numero_serie, produit_libelle: actif.produit_libelle })}
-                              className="btn btn-ghost btn-xs rounded-lg text-rose-500 hover:bg-rose-500/10"
+                              className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-error hover:bg-base-200"
                               title="Générer le rapport (PDF)"
                             >
                               <FileDown className="w-3.5 h-3.5" />

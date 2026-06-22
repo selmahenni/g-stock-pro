@@ -34,6 +34,7 @@ router.get('/', requireRole(['super_admin']), utilisateurController.getAllUtilis
 router.get('/:id', requireRole(['super_admin']), utilisateurController.getUtilisateurById);
 router.post('/', requireRole(['super_admin']), validate(registerSchema), utilisateurController.createUtilisateur);
 router.put('/:id', requireRole(['super_admin']), utilisateurController.updateUtilisateur);
+router.patch('/:id/statut', requireRole(['super_admin']), utilisateurController.toggleStatut);
 router.delete('/:id', requireRole(['super_admin']), utilisateurController.deleteUtilisateur);
 
 module.exports = router;

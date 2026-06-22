@@ -2,7 +2,7 @@
 const Mouvement = require('../models/Mouvement');
 const pool = require('../config/db');
 const notificationService = require('../services/notificationService');
-const { ajusterStock } = require('../services/stockService');
+const { ajusterStock, verifierSeuilCritique } = require('../services/stockService');
 
 /**
  * @function getAllMouvements
@@ -113,16 +113,10 @@ exports.createMouvement = async (req, res) => {
         }).catch(err => console.error('❌ Notification mouvement entrant échouée:', err));
       }
 
-      // Alerte si le stock atteint / franchit le seuil critique
-      if (quantiteActuelle <= infoActif.stock_critique) {
-        // Super-admin + magasinier (existant) + service achat (Mailtrap)
-        const emailAchat = process.env.EMAIL_ACHAT || 'achat@gstockpro.com';
-        const destinataires = ['super_admin@gstockpro.com', 'magasinier@gstockpro.com', emailAchat];
-        notificationService.alerterRuptureStock(
-          { libelle: infoActif.produit_libelle, quantite_actuelle: quantiteActuelle, stock_critique: infoActif.stock_critique },
-          destinataires
-        ).catch(err => console.error('❌ Erreur lors de l\'envoi de l\'alerte email:', err));
-      }
+      // Alerte de seuil critique : logique centralisée dans stockService (même source
+      // que la suppression d'actif). Déclenche l'alerte si le stock est sous le seuil.
+      verifierSeuilCritique(infoActif.produit_id, entrepotId)
+        .catch(err => console.error('❌ Erreur lors de la vérification du seuil critique:', err));
     }
 
     res.status(201).json({

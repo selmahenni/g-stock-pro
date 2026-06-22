@@ -14,6 +14,7 @@ export default function ResourceModal({
   onChange,
   onClose,
   onSubmit,
+  headerExtra = null,
 }) {
   const setValue = (name, value) => onChange({ ...values, [name]: value });
 
@@ -42,10 +43,12 @@ export default function ResourceModal({
           <X className="w-4 h-4" />
         </button>
 
-        <h3 className="font-bold text-lg flex items-center gap-2 mb-5">
+        <h3 className="font-bold text-lg flex items-center gap-2 mb-4">
           {Icon && <Icon className="w-5 h-5 text-primary" />}
           {title}
         </h3>
+
+        {headerExtra}
 
         {error && (
           <div className="alert alert-error rounded-xl mb-4 py-2 text-sm">

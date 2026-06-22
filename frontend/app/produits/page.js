@@ -290,11 +290,13 @@ export default function PageProduits() {
     {
       accessorKey: 'stock_minimum',
       header: 'Stock Min.',
+      meta: { align: 'right' },
       cell: (info) => <span className="badge badge-ghost badge-sm">{info.getValue() ?? '—'}</span>,
     },
     {
       accessorKey: 'stock_critique',
       header: 'Seuil Critique',
+      meta: { align: 'right' },
       cell: (info) => {
         const val = info.getValue();
         return val ? (
@@ -334,12 +336,12 @@ export default function PageProduits() {
             <Eye className="w-3.5 h-3.5" />
           </Link>
           {canUpdate && (
-            <button onClick={() => openEdit(info.row.original)} className="btn btn-ghost btn-xs rounded-lg text-sky-500 hover:bg-sky-500/10" title="Modifier">
+            <button onClick={() => openEdit(info.row.original)} className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-primary hover:bg-base-200" title="Modifier">
               <Pencil className="w-3.5 h-3.5" />
             </button>
           )}
           {canDelete && (
-            <button onClick={() => handleDelete(info.row.original.id)} className="btn btn-ghost btn-xs rounded-lg text-rose-500 hover:bg-rose-500/10" title="Supprimer">
+            <button onClick={() => handleDelete(info.row.original.id)} className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-error hover:bg-base-200" title="Supprimer">
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
@@ -349,12 +351,12 @@ export default function PageProduits() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-base-100 to-base-200/50 p-4 sm:p-6 md:p-8">
+    <div className="min-h-screen bg-base-200 p-4 sm:p-6 md:p-8">
       <div className="max-w-7xl mx-auto space-y-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-base-200 pb-6">
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold tracking-tight text-base-content">
               Catalogue Produits
             </h1>
             <p className="text-sm text-base-content/60 mt-1">{list.isFetching ? 'Chargement...' : `${list.total} produit(s) au catalogue.`}</p>
@@ -373,12 +375,12 @@ export default function PageProduits() {
 
         {/* Data */}
         {list.isError ? (
-          <div className="alert alert-error shadow-lg rounded-2xl border border-rose-500/25 p-5 flex items-start gap-4">
-            <AlertCircle className="w-6 h-6 text-rose-600 mt-0.5 shrink-0" />
+          <div className="rounded-2xl border border-error/25 bg-error/5 p-5 flex items-start gap-4">
+            <AlertCircle className="w-6 h-6 text-error mt-0.5 shrink-0" />
             <div>
-              <h3 className="font-bold text-rose-800">Erreur</h3>
-              <p className="text-sm text-rose-700/80 mt-1">{list.error?.message}</p>
-              <button onClick={() => list.refetch()} className="btn btn-sm btn-outline border-rose-500/30 text-rose-800 font-semibold rounded-lg mt-4">Réessayer</button>
+              <h3 className="font-bold text-error">Erreur</h3>
+              <p className="text-sm text-base-content/70 mt-1">{list.error?.message}</p>
+              <button onClick={() => list.refetch()} className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Réessayer</button>
             </div>
           </div>
         ) : (

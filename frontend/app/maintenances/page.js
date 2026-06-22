@@ -3,12 +3,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import DataTable from '../../components/DataTable';
+import ResourceModal from '../../components/ResourceModal';
+import StatusBadge from '../../components/StatusBadge';
 import usePermissions from '../../hooks/usePermissions';
 import { genererRapportMaintenance } from '../../lib/pdfDocuments';
 import {
-  Wrench, RefreshCw, AlertCircle, Trash2,
+  Wrench, RefreshCw, AlertCircle, Trash2, Pencil,
   Clock, CheckCircle2, Calendar, ClipboardList, CalendarClock, AlertTriangle,
-  ShieldAlert, FileDown,
+  ShieldAlert, FileDown, Filter,
 } from 'lucide-react';
 
 /**
@@ -24,6 +26,15 @@ export default function PageMaintenances() {
   const [actifs, setActifs] = useState([]);
   const [produits, setProduits] = useState([]);
   const { canAccess } = usePermissions();
+
+  // ── Onglet de filtrage par statut ───────────────────────────────────
+  const [activeTab, setActiveTab] = useState('tous');
+
+  // ── Édition de ticket ───────────────────────────────────────────────
+  const [editingTicket, setEditingTicket] = useState(null);
+  const [editFormData, setEditFormData] = useState({});
+  const [editFormLoading, setEditFormLoading] = useState(false);
+  const [editFormError, setEditFormError] = useState(null);
 
   useEffect(() => {
     async function fetchMaintenances() {
@@ -129,6 +140,7 @@ export default function PageMaintenances() {
     return `${Math.round(abs / j)} j`;
   };
 
+  const canUpdate = canAccess('maintenances', 'update');
   const canDelete = canAccess('maintenances', 'delete');
 
   const handleDelete = async (id) => {
@@ -140,31 +152,70 @@ export default function PageMaintenances() {
     } catch (err) { alert(err.message); }
   };
 
+  // ── Édition de ticket ───────────────────────────────────────────────
+  const openEditModal = (ticket) => {
+    setEditFormError(null);
+    setEditFormData({
+      statut: ticket.statut || 'planifie',
+      rapport: ticket.rapport || '',
+      cout: ticket.cout != null ? ticket.cout : '',
+      date_intervention: ticket.date_intervention ? new Date(ticket.date_intervention).toISOString().split('T')[0] : '',
+    });
+    setEditingTicket(ticket);
+  };
+
+  const handleEditTicket = async (e) => {
+    e.preventDefault();
+    setEditFormLoading(true);
+    setEditFormError(null);
+    try {
+      const res = await fetch(`http://localhost:5000/api/maintenances/${editingTicket.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          statut: editFormData.statut || null,
+          rapport: editFormData.rapport || null,
+          cout: editFormData.cout !== '' ? Number(editFormData.cout) : null,
+          date_intervention: editFormData.date_intervention || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Erreur lors de la mise à jour');
+      setEditingTicket(null);
+      setRefreshKey(p => p + 1);
+    } catch (err) {
+      setEditFormError(err.message);
+    } finally {
+      setEditFormLoading(false);
+    }
+  };
+
   // Statistiques (nouveaux statuts de ticket)
   const total = maintenances.length;
   const enCours = maintenances.filter(m => m.statut === 'en_cours').length;
   const terminees = maintenances.filter(m => m.statut === 'termine').length;
   const planifiees = maintenances.filter(m => m.statut === 'planifie').length;
 
-  const statutBadge = (statut) => {
-    const map = {
-      planifie: { label: 'Planifié', cls: 'bg-sky-500/10 text-sky-600 border-sky-500/20',          icon: Calendar },
-      en_cours: { label: 'En cours', cls: 'bg-amber-500/10 text-amber-600 border-amber-500/20',     icon: Clock },
-      termine:  { label: 'Terminé',  cls: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20', icon: CheckCircle2 },
-      annule:   { label: 'Annulé',   cls: 'bg-base-300 text-base-content/50 border-base-300',         icon: null },
-    };
-    const s = map[statut] || { label: statut || '—', cls: 'badge-ghost', icon: null };
-    const Icon = s.icon;
-    return (
-      <span className={`inline-flex items-center gap-1.5 badge badge-sm py-2 px-2.5 rounded-lg font-semibold border ${s.cls}`}>
-        {Icon && <Icon className="w-3 h-3" />} {s.label}
-      </span>
-    );
-  };
+  // ── Filtrage par onglet ─────────────────────────────────────────────
+  const filteredMaintenances = useMemo(() => {
+    if (activeTab === 'tous') return maintenances;
+    return maintenances.filter(m => m.statut === activeTab);
+  }, [maintenances, activeTab]);
+
+  const tabs = [
+    { key: 'tous',     label: 'Tous',      count: total,      icon: ClipboardList, cls: 'text-primary' },
+    { key: 'en_cours', label: 'En cours',   count: enCours,    icon: Clock,         cls: 'text-amber-500' },
+    { key: 'planifie', label: 'Planifiés',  count: planifiees, icon: Calendar,      cls: 'text-sky-500' },
+    { key: 'termine',  label: 'Terminés',   count: terminees,  icon: CheckCircle2,  cls: 'text-emerald-500' },
+  ];
+
+  // Badges unifiés (composant partagé StatusBadge)
+  const statutBadge = (statut) => <StatusBadge status={statut} />;
 
   const typeBadge = (type) => type === 'curatif'
-    ? <span className="inline-flex items-center gap-1 badge badge-sm rounded-md font-semibold border bg-rose-500/10 text-rose-600 border-rose-500/20"><ShieldAlert className="w-3 h-3" /> Curatif</span>
-    : <span className="inline-flex items-center gap-1 badge badge-sm rounded-md font-semibold border bg-sky-500/10 text-sky-600 border-sky-500/20"><CalendarClock className="w-3 h-3" /> Préventif</span>;
+    ? <StatusBadge label="Curatif" tone="error" icon={ShieldAlert} />
+    : <StatusBadge label="Préventif" tone="info" icon={CalendarClock} />;
 
   const columns = [
     {
@@ -224,25 +275,48 @@ export default function PageMaintenances() {
       header: 'Actions',
       cell: (info) => (
         <div className="flex items-center gap-1">
+          {/* Bouton PDF — toujours visible quel que soit le statut */}
           <button
             onClick={() => genererRapportMaintenance(info.row.original)}
-            className="btn btn-ghost btn-xs rounded-lg text-rose-500 hover:bg-rose-500/10 gap-1"
-            title="Générer le rapport de maintenance (PDF)"
+            className="btn btn-outline btn-xs rounded-lg border-primary/30 text-base-content/40 hover:text-primary hover:bg-base-200 gap-1"
+            title="Télécharger le rapport PDF"
           >
-            <FileDown className="w-3.5 h-3.5" /> Rapport
+            <FileDown className="w-3.5 h-3.5" /> PDF
           </button>
-          {canDelete && <button onClick={() => handleDelete(info.row.original.id)} className="btn btn-ghost btn-xs rounded-lg text-rose-500 hover:bg-rose-500/10" title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>}
+          {canUpdate && (
+            <button
+              onClick={() => openEditModal(info.row.original)}
+              className="btn btn-ghost btn-xs rounded-lg text-amber-500 hover:bg-amber-500/10"
+              title="Modifier le ticket"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {canDelete && <button onClick={() => handleDelete(info.row.original.id)} className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-error hover:bg-base-200" title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>}
         </div>
       ),
     },
   ];
 
+  // ── Champs de la modale d'édition ───────────────────────────────────
+  const editFields = [
+    { name: 'statut', label: 'Statut', type: 'select', options: [
+      { value: 'planifie', label: 'Planifié' },
+      { value: 'en_cours', label: 'En cours' },
+      { value: 'termine', label: 'Terminé' },
+      { value: 'annule', label: 'Annulé' },
+    ] },
+    { name: 'date_intervention', label: 'Date d\'intervention', type: 'date' },
+    { name: 'rapport', label: 'Rapport', type: 'textarea', placeholder: 'Actions réalisées, pièces remplacées, observations...' },
+    { name: 'cout', label: 'Coût (DA)', type: 'number', min: 0, step: '0.01', placeholder: '0.00' },
+  ];
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-base-100 to-base-200/50 p-4 sm:p-6 md:p-8">
+    <div className="min-h-screen bg-base-200 p-4 sm:p-6 md:p-8">
       <div className="max-w-7xl mx-auto space-y-8">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-base-200 pb-6">
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold tracking-tight text-base-content">
               Maintenance
             </h1>
             <p className="text-sm text-base-content/60 mt-1">Tickets d'intervention (préventif / curatif) et échéancier. Les actions se font sur la fiche actif.</p>
@@ -278,7 +352,7 @@ export default function PageMaintenances() {
               <CalendarClock className="w-4 h-4 text-primary" />
               <h2 className="font-bold text-base-content">Échéancier préventif</h2>
               {enRetard > 0 && (
-                <span className="inline-flex items-center gap-1 badge badge-sm py-2 px-2.5 rounded-lg font-semibold bg-rose-500/10 text-rose-600 border border-rose-500/20">
+                <span className="inline-flex items-center gap-1 badge badge-sm py-2 px-2.5 rounded-lg font-semibold bg-rose-500/10 text-error border border-rose-500/20">
                   <AlertTriangle className="w-3 h-3" /> {enRetard} en retard
                 </span>
               )}
@@ -301,7 +375,7 @@ export default function PageMaintenances() {
                     const UN_JOUR = 86400000;
                     let badge;
                     if (e.msRestants < 0) {
-                      badge = <span className="inline-flex items-center gap-1 badge badge-sm py-2 px-2.5 rounded-lg font-semibold bg-rose-500/10 text-rose-600 border border-rose-500/20"><AlertTriangle className="w-3 h-3" /> En retard de {formatDelai(e.msRestants)}</span>;
+                      badge = <span className="inline-flex items-center gap-1 badge badge-sm py-2 px-2.5 rounded-lg font-semibold bg-rose-500/10 text-error border border-rose-500/20"><AlertTriangle className="w-3 h-3" /> En retard de {formatDelai(e.msRestants)}</span>;
                     } else if (e.msRestants <= UN_JOUR) {
                       badge = <span className="inline-flex items-center gap-1 badge badge-sm py-2 px-2.5 rounded-lg font-semibold bg-amber-500/10 text-amber-600 border border-amber-500/20"><Clock className="w-3 h-3" /> Dans {formatDelai(e.msRestants)}</span>;
                     } else {
@@ -325,22 +399,63 @@ export default function PageMaintenances() {
           </div>
         )}
 
-        <div className="mt-8">
+        {/* ── Onglets de filtrage ──────────────────────────────────────── */}
+        <div className="flex items-center gap-1 bg-base-100 rounded-2xl border border-base-200 shadow-sm p-1.5 w-fit">
+          {tabs.map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`btn btn-sm rounded-xl gap-1.5 transition-all ${
+                  isActive
+                    ? 'btn-primary shadow-md'
+                    : 'btn-ghost text-base-content/60 hover:text-base-content'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {tab.label}
+                <span className={`badge badge-xs font-bold ${isActive ? 'badge-primary-content bg-white/20' : 'badge-ghost'}`}>
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div>
           {loading ? (
             <div className="flex flex-col items-center justify-center py-20 gap-4 bg-base-100 rounded-2xl shadow-xl border border-base-200">
               <span className="loading loading-spinner loading-lg text-primary"></span>
               <p className="text-sm text-base-content/60 font-medium animate-pulse">Chargement des tickets...</p>
             </div>
           ) : error ? (
-            <div className="alert alert-error shadow-lg rounded-2xl border border-rose-500/25 p-5 flex items-start gap-4">
-              <AlertCircle className="w-6 h-6 text-rose-600 mt-0.5 shrink-0" /><div><h3 className="font-bold text-rose-800">Erreur</h3><p className="text-sm text-rose-700/80 mt-1">{error}</p>
-                <button onClick={() => setRefreshKey(p => p + 1)} className="btn btn-sm btn-outline border-rose-500/30 text-rose-800 font-semibold rounded-lg mt-4">Réessayer</button></div>
+            <div className="rounded-2xl border border-error/25 bg-error/5 p-5 flex items-start gap-4">
+              <AlertCircle className="w-6 h-6 text-error mt-0.5 shrink-0" /><div><h3 className="font-bold text-error">Erreur</h3><p className="text-sm text-base-content/70 mt-1">{error}</p>
+                <button onClick={() => setRefreshKey(p => p + 1)} className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Réessayer</button></div>
             </div>
           ) : (
-            <DataTable columns={columns} data={maintenances} searchPlaceholder="Rechercher par n° série, technicien, type..." />
+            <DataTable columns={columns} data={filteredMaintenances} searchPlaceholder="Rechercher par n° série, technicien, type..." />
           )}
         </div>
       </div>
+
+      {/* ── Modale d'édition de ticket ─────────────────────────────────── */}
+      {editingTicket && (
+        <ResourceModal
+          title={`Modifier le ticket #${editingTicket.id}`}
+          icon={Pencil}
+          fields={editFields}
+          values={editFormData}
+          error={editFormError}
+          loading={editFormLoading}
+          submitLabel="Enregistrer"
+          onChange={setEditFormData}
+          onClose={() => setEditingTicket(null)}
+          onSubmit={handleEditTicket}
+        />
+      )}
     </div>
   );
 }

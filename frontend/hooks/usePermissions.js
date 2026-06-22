@@ -20,6 +20,12 @@ export const PERMISSIONS = {
     update: ['super_admin'],
     delete: ['super_admin'],
   },
+  journaux: {
+    read:   ['super_admin'],
+    create: ['super_admin'],
+    update: ['super_admin'],
+    delete: ['super_admin'],
+  },
   produits: {
     read:   ['super_admin', 'magasinier', 'technicien', 'consultant'],
     create: ['super_admin', 'magasinier'],

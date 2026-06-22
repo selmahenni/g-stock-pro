@@ -56,8 +56,8 @@ class Mouvement {
    */
   static async create(data) {
     const query = `
-      INSERT INTO mouvements (actif_id, effectue_par, entrepot_id, type_mouvement, notes)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO mouvements (actif_id, effectue_par, entrepot_id, type_mouvement, notes, destinataire)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *;
     `;
     const values = [
@@ -66,6 +66,7 @@ class Mouvement {
       data.entrepot_id,
       data.type_mouvement,
       data.notes || null,
+      data.destinataire || null,
     ];
     const { rows } = await pool.query(query, values);
     return rows[0];

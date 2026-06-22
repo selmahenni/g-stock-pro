@@ -30,6 +30,13 @@ router.get('/:id', requireRole(['super_admin', 'magasinier', 'technicien', 'cons
 router.post('/', requireRole(['super_admin', 'magasinier', 'technicien']), actifController.createActif);
 
 /**
+ * @route   POST /api/actifs/batch
+ * @desc    Enregistrer plusieurs actifs en lot (transaction atomique)
+ * @access  Super-Admin, Magasinier, Technicien
+ */
+router.post('/batch', requireRole(['super_admin', 'magasinier', 'technicien']), actifController.createActifsBatch);
+
+/**
  * @route   PUT /api/actifs/:id
  * @desc    Mettre à jour un actif (statut, affectation, etc.)
  * @access  Super-Admin, Magasinier, Technicien (le technicien peut modifier le statut)

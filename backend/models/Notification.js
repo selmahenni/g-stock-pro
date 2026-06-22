@@ -15,7 +15,7 @@ class Notification {
    */
   static async findByUser(utilisateurId, limit = 30) {
     const query = `
-      SELECT id, utilisateur_id, titre, type_notif, message, lien, est_lu, cree_le
+      SELECT id, utilisateur_id, titre, type_notif, message, lien, est_lu, email_envoye, cree_le
       FROM notifications
       WHERE utilisateur_id = $1
       ORDER BY cree_le DESC NULLS LAST, id DESC

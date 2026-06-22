@@ -186,10 +186,49 @@ async function verifierEcheancesPreventives() {
   return rows.length;
 }
 
+/**
+ * Resynchronise un actif après la clôture d'un ticket (ex : ticket passé à « termine »
+ * via l'édition). Recalcule la prochaine échéance préventive à partir de la DERNIÈRE
+ * intervention terminée, et fait sortir l'actif de « maintenance » s'il n'a plus de
+ * ticket ouvert. Corrige le cas où l'échéancier reste « en retard » après clôture.
+ * @param {number} actifId
+ */
+async function synchroniserApresCloture(actifId) {
+  const ctx = await getActifContext(actifId);
+  if (!ctx) return;
+
+  // 1. Clôt les tickets préventifs PLANIFIÉS résiduels : l'échéance qui les a déclenchés
+  //    vient d'être traitée, ils sont donc obsolètes (sinon ils bloquent l'actif).
+  await pool.query(
+    `UPDATE maintenances SET statut = 'termine'
+     WHERE actif_id = $1 AND type_maintenance = 'preventif' AND statut = 'planifie'`,
+    [actifId]
+  );
+
+  // 2. Recalcule la prochaine échéance depuis la DERNIÈRE intervention terminée
+  const { rows } = await pool.query(
+    `SELECT MAX(COALESCE(date_intervention, cree_le::date)) AS derniere
+     FROM maintenances WHERE actif_id = $1 AND statut = 'termine'`,
+    [actifId]
+  );
+  const base = rows[0]?.derniere ? new Date(rows[0].derniere) : new Date();
+  await Actif.setProchainePreventive(actifId, calculerProchaineDate(ctx, base));
+
+  // 3. L'actif sort de « maintenance » s'il ne reste aucune intervention EN COURS
+  if (ctx.statut === 'maintenance') {
+    const { rows: enCours } = await pool.query(
+      `SELECT 1 FROM maintenances WHERE actif_id = $1 AND statut = 'en_cours' LIMIT 1`,
+      [actifId]
+    );
+    if (enCours.length === 0) await Actif.setStatut(actifId, 'en_stock');
+  }
+}
+
 module.exports = {
   calculerProchaineDate,
   initialiserPreventive,
   declarerPanne,
   enregistrerEntretien,
   verifierEcheancesPreventives,
+  synchroniserApresCloture,
 };

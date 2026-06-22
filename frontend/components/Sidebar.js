@@ -1,12 +1,12 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Boxes, Users, LayoutDashboard, Package, Layers,
-  Truck, Tag, Building2, Warehouse, Wrench, X, ClipboardList,
-  ChevronsLeft, ChevronsRight,
+  Truck, Tag, Building2, Warehouse, Wrench, X, ClipboardList, ScrollText,
+  ChevronsLeft, ChevronsRight, Mail,
 } from 'lucide-react';
 import usePermissions from '../hooks/usePermissions';
 
@@ -25,6 +25,28 @@ import usePermissions from '../hooks/usePermissions';
 export default function Sidebar({ collapsed, mobileOpen, onClose, onToggleCollapse }) {
   const pathname = usePathname();
   const { canAccess } = usePermissions();
+  const [unreadMessages, setUnreadMessages] = useState(0);
+
+  // Compteur de messages non lus (badge sur « Messagerie »).
+  const fetchUnread = useCallback(async () => {
+    try {
+      const res = await fetch('http://localhost:5000/api/messages/non-lus', { credentials: 'include' });
+      if (!res.ok) return;
+      const data = await res.json();
+      setUnreadMessages(data.non_lus ?? 0);
+    } catch { /* silencieux : le badge se mettra à jour au prochain cycle */ }
+  }, []);
+
+  useEffect(() => {
+    fetchUnread();
+    const id = setInterval(fetchUnread, 45000); // rafraîchissement périodique
+    const onFocus = () => fetchUnread();
+    window.addEventListener('focus', onFocus);
+    return () => { clearInterval(id); window.removeEventListener('focus', onFocus); };
+  }, [fetchUnread]);
+
+  // Rafraîchit aussi à chaque changement de page (ex. après lecture dans /messages).
+  useEffect(() => { fetchUnread(); }, [pathname, fetchUnread]);
 
   const navLinks = [
     { href: '/',              label: 'Dashboard',     icon: LayoutDashboard, module: null },
@@ -37,6 +59,8 @@ export default function Sidebar({ collapsed, mobileOpen, onClose, onToggleCollap
     { href: '/fournisseurs',  label: 'Fournisseurs',  icon: Building2,       module: 'fournisseurs' },
     { href: '/entrepots',     label: 'Entrepôts',     icon: Warehouse,       module: 'entrepots' },
     { href: '/maintenances',  label: 'Maintenance',   icon: Wrench,          module: 'maintenances' },
+    { href: '/messages',      label: 'Messagerie',    icon: Mail,            module: null },
+    { href: '/journaux',      label: 'Journaux',      icon: ScrollText,      module: 'journaux' },
   ];
 
   const visibleLinks = navLinks.filter(link => {
@@ -88,20 +112,33 @@ export default function Sidebar({ collapsed, mobileOpen, onClose, onToggleCollap
           {visibleLinks.map(link => {
             const Icon = link.icon;
             const isActive = pathname === link.href;
+            const badge = link.href === '/messages' ? unreadMessages : 0;
             return (
               <Link
                 key={link.href}
                 href={link.href}
                 onClick={onClose}
                 title={collapsed ? link.label : undefined}
-                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all group
+                className={`relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all group
                   ${collapsed ? 'lg:justify-center' : ''}
                   ${isActive
                     ? 'bg-primary/10 text-primary font-bold shadow-sm'
                     : 'text-base-content/70 hover:bg-base-200 hover:text-base-content'}`}
               >
-                <Icon className={`w-5 h-5 shrink-0 transition-transform group-hover:scale-110 ${isActive ? '' : 'text-base-content/60 group-hover:text-base-content'}`} />
+                <span className="relative shrink-0">
+                  <Icon className={`w-5 h-5 transition-transform group-hover:scale-110 ${isActive ? '' : 'text-base-content/60 group-hover:text-base-content'}`} />
+                  {/* Pastille en mode réduit (icônes seules) */}
+                  {badge > 0 && collapsed && (
+                    <span className="absolute -top-1.5 -right-1.5 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-base-100 hidden lg:block" />
+                  )}
+                </span>
                 <span className={`truncate ${collapsed ? 'lg:hidden' : ''}`}>{link.label}</span>
+                {/* Badge chiffré (mode étendu / mobile) */}
+                {badge > 0 && (
+                  <span className={`ml-auto badge badge-sm border-0 bg-rose-500 text-white font-bold ${collapsed ? 'lg:hidden' : ''}`}>
+                    {badge > 99 ? '99+' : badge}
+                  </span>
+                )}
               </Link>
             );
           })}

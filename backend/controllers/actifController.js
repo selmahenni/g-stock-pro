@@ -1,6 +1,7 @@
 // controllers/actifController.js
 const Actif = require('../models/Actif');
-const { ajusterStock } = require('../services/stockService');
+const pool = require('../config/db');
+const { ajusterStock, verifierSeuilCritique } = require('../services/stockService');
 const maintenanceService = require('../services/maintenanceService');
 
 /**
@@ -160,10 +161,12 @@ exports.deleteActif = async (req, res) => {
       return res.status(404).json({ message: 'Actif non trouvé ou déjà supprimé.' });
     }
 
-    // Suppression d'un actif = sortie physique : on décrémente le stock du produit (non bloquant)
+    // Suppression d'un actif = sortie physique : on décrémente le stock du produit (non bloquant),
+    // puis on vérifie le seuil critique (alerte notif/e-mail si le stock est tombé sous le seuil).
     if (existant) {
       ajusterStock(existant.produit_id, existant.entrepot_id, -1)
-        .catch(err => console.error('❌ Erreur ajustement stock (suppression actif):', err));
+        .then(() => verifierSeuilCritique(existant.produit_id, existant.entrepot_id))
+        .catch(err => console.error('❌ Ajustement stock / alerte seuil (suppression actif):', err));
     }
 
     res.status(200).json({ message: 'Actif supprimé avec succès.' });
@@ -176,5 +179,94 @@ exports.deleteActif = async (req, res) => {
       });
     }
     res.status(500).json({ message: 'Erreur lors de la suppression de l\'actif.' });
+  }
+};
+
+/**
+ * @function createActifsBatch
+ * @description Crée plusieurs actifs en lot (batch) dans une transaction PostgreSQL.
+ * Le stock est incrémenté une seule fois du delta total (+N).
+ * @param {Object} req - body: { produit_id, entrepot_id, numeros_serie: string[], emplacement?, prix_unitaire?, statut? }
+ * @param {Object} res - Objet de réponse Express.
+ */
+exports.createActifsBatch = async (req, res) => {
+  const { produit_id, entrepot_id, numeros_serie, emplacement, prix_unitaire, statut } = req.body;
+
+  if (!produit_id || !entrepot_id) {
+    return res.status(400).json({ message: 'produit_id et entrepot_id sont obligatoires.' });
+  }
+  if (!Array.isArray(numeros_serie)) {
+    return res.status(400).json({ message: 'numeros_serie doit être un tableau.' });
+  }
+
+  // Nettoyage : trim + suppression des entrées vides
+  const serials = numeros_serie.map((s) => String(s).trim()).filter(Boolean);
+  if (serials.length === 0) {
+    return res.status(400).json({ message: 'Saisissez au moins un numéro de série.' });
+  }
+  // Doublons internes au lot
+  if (new Set(serials).size !== serials.length) {
+    return res.status(400).json({ message: 'Le lot contient des numéros de série en double.' });
+  }
+
+  const creePar = req.utilisateur?.id ?? null;
+  const prixUnit = (prix_unitaire !== undefined && prix_unitaire !== null && prix_unitaire !== '')
+    ? Number(prix_unitaire) : null;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Insertion atomique de tous les actifs du lot
+    const actifsCreés = [];
+    for (const ns of serials) {
+      const { rows } = await client.query(
+        `INSERT INTO actifs (produit_id, numero_serie, entrepot_id, emplacement, utilisateur_affecte_id, statut, prix_unitaire, cree_par)
+         VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'en_stock'), $7, $8)
+         RETURNING *`,
+        [produit_id, ns, entrepot_id, emplacement || null, null, statut || null, prixUnit, creePar]
+      );
+      actifsCreés.push(rows[0]);
+    }
+    const nombre = actifsCreés.length;
+
+    // 2. INTÉGRITÉ : incrément du stock (+N) du produit dans le bon entrepôt,
+    //    DANS la même transaction (mécanisme existant, atomique avec les inserts).
+    await ajusterStock(produit_id, entrepot_id, nombre, client);
+
+    // 3. Maintenance préventive : calcul unique + un seul UPDATE pour tout le lot
+    const { rows: prod } = await client.query(
+      'SELECT est_maintenable, intervalle_valeur, intervalle_unite FROM produits WHERE id = $1',
+      [produit_id]
+    );
+    const prochaine = maintenanceService.calculerProchaineDate(prod[0], new Date());
+    if (prochaine) {
+      await client.query(
+        'UPDATE actifs SET date_prochaine_preventive = $1 WHERE id = ANY($2::bigint[])',
+        [prochaine, actifsCreés.map((a) => a.id)]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    // 4. Valeur totale du lot = prix unitaire × nombre d'actifs
+    const valeurTotale = (prixUnit || 0) * nombre;
+
+    res.status(201).json({
+      message: `${nombre} actif(s) enregistré(s) avec succès.`,
+      nombre,
+      prix_unitaire: prixUnit,
+      valeur_totale: valeurTotale,
+      actifs: actifsCreés,
+    });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Erreur (createActifsBatch):', error);
+    if (error.code === '23505') {
+      return res.status(409).json({ message: 'Un numéro de série du lot existe déjà dans le système. Aucun actif n\'a été créé (lot annulé).' });
+    }
+    res.status(500).json({ message: 'Erreur lors de la création du lot d\'actifs.' });
+  } finally {
+    client.release();
   }
 };

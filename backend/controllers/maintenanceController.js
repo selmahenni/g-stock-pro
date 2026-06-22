@@ -110,6 +110,18 @@ exports.updateMaintenance = async (req, res) => {
   try {
     const updated = await Maintenance.update(req.params.id, req.body);
     if (!updated) return res.status(404).json({ message: 'Ticket non trouvé pour la mise à jour.' });
+
+    // Si le ticket est désormais « terminé », resynchroniser l'actif :
+    // recalcul de la prochaine échéance préventive + sortie de maintenance.
+    // (Corrige le « En retard » persistant après clôture via l'édition.)
+    if (updated.statut === 'termine' && updated.actif_id) {
+      try {
+        await maintenanceService.synchroniserApresCloture(updated.actif_id);
+      } catch (err) {
+        console.error('❌ Resync actif après clôture du ticket :', err.message);
+      }
+    }
+
     res.status(200).json({ message: 'Ticket mis à jour avec succès.', maintenance: updated });
   } catch (error) {
     console.error('Erreur (updateMaintenance):', error);

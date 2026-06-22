@@ -64,10 +64,18 @@ export default function DataTableServer({
   const from = total > 0 ? pageIndex * pageSize + 1 : 0;
   const to = Math.min((pageIndex + 1) * pageSize, total);
 
+  // Alignement par colonne via columnDef.meta.align ('right' | 'center' | 'left')
+  const alignClass = (column) => {
+    const a = column.columnDef.meta?.align;
+    if (a === 'right') return 'text-right';
+    if (a === 'center') return 'text-center';
+    return 'text-left';
+  };
+
   return (
-    <div className="w-full bg-base-100 rounded-2xl shadow-xl border border-base-200 overflow-hidden transition-all duration-300">
+    <div className="w-full bg-base-100 rounded-2xl border border-base-300 shadow-sm overflow-hidden transition-all duration-300">
       {/* Barre d'outils */}
-      <div className="p-5 border-b border-base-200 flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-4 bg-gradient-to-r from-base-100 to-base-200/50">
+      <div className="p-5 border-b border-base-200 flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-4">
         <div className="relative w-full lg:max-w-xs">
           <input
             type="text"
@@ -95,14 +103,14 @@ export default function DataTableServer({
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto w-full relative">
+      {/* Table (scroll horizontal + vertical avec en-tête collant) */}
+      <div className="overflow-auto w-full relative max-h-[70vh]">
         <table className="table table-md w-full">
-          <thead>
+          <thead className="sticky top-0 z-10">
             {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id} className="bg-base-200/40 text-base-content/80 font-bold border-b border-base-200">
+              <tr key={hg.id} className="bg-base-100 text-base-content/50 border-b border-base-300">
                 {hg.headers.map((header) => (
-                  <th key={header.id} className="py-4 px-6 text-left select-none text-xs uppercase tracking-wider">
+                  <th key={header.id} className={`py-3.5 px-6 select-none text-xs font-semibold uppercase tracking-wider ${alignClass(header.column)}`}>
                     {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                   </th>
                 ))}
@@ -112,12 +120,15 @@ export default function DataTableServer({
           <tbody>
             {table.getRowModel().rows.length > 0 ? (
               table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="border-b border-base-200/60 hover:bg-base-200/30 transition-colors duration-150">
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="py-4 px-6 text-sm align-middle">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
+                <tr key={row.id} className="border-b border-base-200/60 hover:bg-base-200/60 transition-colors duration-150">
+                  {row.getVisibleCells().map((cell) => {
+                    const isRight = cell.column.columnDef.meta?.align === 'right';
+                    return (
+                      <td key={cell.id} className={`py-4 px-6 text-sm align-middle ${alignClass(cell.column)} ${isRight ? 'tabular-nums font-medium' : ''}`}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))
             ) : (
@@ -135,7 +146,7 @@ export default function DataTableServer({
       </div>
 
       {/* Pagination */}
-      <div className="p-5 border-t border-base-200 flex flex-col sm:flex-row justify-between items-center gap-4 bg-gradient-to-r from-base-100 to-base-200/30">
+      <div className="p-5 border-t border-base-200 flex flex-col sm:flex-row justify-between items-center gap-4">
         <div className="text-xs text-base-content/60">
           Affichage de <span className="font-semibold text-base-content">{from}</span> à{' '}
           <span className="font-semibold text-base-content">{to}</span> sur{' '}

@@ -6,6 +6,8 @@ const bcrypt = require('bcryptjs');
 
 const jwt = require('jsonwebtoken');
 
+const auditService = require('../services/auditService');
+
 
 
 const createUtilisateur = async (req, res) => {
@@ -96,25 +98,35 @@ const connexion = async (req, res) => {
 
     const utilisateur = await Utilisateur.findByEmail(adresse_email);
 
-    if (!utilisateur || !utilisateur.est_actif) {
+    // 1. Vérification des identifiants (email + mot de passe) -> 401 générique
+    const isMatch = utilisateur
+      ? await bcrypt.compare(mot_de_passe, utilisateur.hash_mot_de_passe)
+      : false;
 
-      return res.status(401).json({ message: "Identifiants invalides ou compte inactif." });
-
-    }
-
-
-
-    const isMatch = await bcrypt.compare(mot_de_passe, utilisateur.hash_mot_de_passe);
-
-    if (!isMatch) {
-
+    if (!utilisateur || !isMatch) {
+      auditService.enregistrer({
+        utilisateur_id: utilisateur?.id || null,
+        action: 'connexion_echec',
+        entite: 'utilisateurs',
+        entite_id: utilisateur?.id || null,
+        details: `Échec de connexion (identifiants invalides) : ${adresse_email}`,
+      });
       return res.status(401).json({ message: "Identifiants invalides." });
-
     }
 
+    // 2. Identifiants valides mais COMPTE DÉSACTIVÉ -> 403 propre et distinct
+    if (!utilisateur.est_actif) {
+      auditService.enregistrer({
+        utilisateur_id: utilisateur.id,
+        action: 'connexion_echec',
+        entite: 'utilisateurs',
+        entite_id: utilisateur.id,
+        details: `Tentative de connexion sur un compte désactivé : ${adresse_email}`,
+      });
+      return res.status(403).json({ message: "Votre compte a été désactivé. Veuillez contacter un administrateur." });
+    }
 
-
-    // Création du Payload JWT
+    // 3. Création du Payload JWT
 
     const payload = { id: utilisateur.id, role: utilisateur.role };
 
@@ -136,7 +148,13 @@ const connexion = async (req, res) => {
 
     });
 
-
+    auditService.enregistrer({
+      utilisateur_id: utilisateur.id,
+      action: 'connexion',
+      entite: 'utilisateurs',
+      entite_id: utilisateur.id,
+      details: `Connexion réussie : ${adresse_email}`,
+    });
 
     return res.status(200).json({
 
@@ -252,7 +270,17 @@ const updateUtilisateur = async (req, res) => {
     }
 
     const { nom, nom_complet, adresse_email, role, est_actif } = req.body;
-    
+
+    // Garde-fous de désactivation (cohérents avec toggleStatut)
+    if (est_actif === false) {
+      if (Number(id) === Number(req.utilisateur.id)) {
+        return res.status(403).json({ message: "Vous ne pouvez pas désactiver votre propre compte." });
+      }
+      if (utilisateurExistant.role === 'super_admin') {
+        return res.status(403).json({ message: "Un compte super-administrateur ne peut pas être désactivé." });
+      }
+    }
+
     // Fusion sécurisée des données envoyées avec les valeurs existantes
     const dataToUpdate = {
       nom_complet: nom_complet !== undefined ? nom_complet : (nom !== undefined ? nom : utilisateurExistant.nom_complet),
@@ -294,6 +322,48 @@ const deleteUtilisateur = async (req, res) => {
 
 
 
+/**
+ * @function toggleStatut
+ * @description Bascule le statut actif/inactif d'un utilisateur (super-admin).
+ */
+const toggleStatut = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const utilisateur = await Utilisateur.findById(id);
+    if (!utilisateur) {
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
+    }
+
+    // Garde-fou 1 : anti-verrouillage — on ne modifie pas son propre statut
+    if (Number(id) === Number(req.utilisateur.id)) {
+      return res.status(403).json({ message: "Vous ne pouvez pas modifier le statut de votre propre compte." });
+    }
+
+    // Garde-fou 2 : un super-administrateur actif ne peut pas être désactivé
+    if (utilisateur.role === 'super_admin' && utilisateur.est_actif) {
+      return res.status(403).json({ message: "Un compte super-administrateur ne peut pas être désactivé." });
+    }
+
+    const nouveauStatut = !utilisateur.est_actif;
+    const maj = await Utilisateur.update(id, {
+      role: utilisateur.role,
+      nom_complet: utilisateur.nom_complet,
+      adresse_email: utilisateur.adresse_email,
+      est_actif: nouveauStatut,
+    });
+
+    return res.status(200).json({
+      message: `Compte ${nouveauStatut ? 'activé' : 'désactivé'} avec succès.`,
+      utilisateur: maj,
+    });
+  } catch (error) {
+    console.error("Erreur lors du changement de statut :", error);
+    return res.status(500).json({ message: "Erreur serveur lors du changement de statut.", erreur: error.message });
+  }
+};
+
+
+
 // L'export correct attendu par ton fichier Routes
 
 module.exports = {
@@ -310,7 +380,9 @@ module.exports = {
 
   updateUtilisateur,
 
-  deleteUtilisateur
+  deleteUtilisateur,
 
-}; 
+  toggleStatut
+
+};
 

@@ -5,11 +5,12 @@ import Link from 'next/link';
 import DataTableServer from '../../components/DataTableServer';
 import ExportButtons from '../../components/ExportButtons';
 import ResourceModal from '../../components/ResourceModal';
+import StatusBadge from '../../components/StatusBadge';
 import usePermissions from '../../hooks/usePermissions';
 import usePaginatedResource from '../../hooks/usePaginatedResource';
 import {
   Layers, RefreshCw, AlertCircle, Plus, Pencil, Trash2,
-  Monitor, CheckCircle2, XCircle, Clock, Eye, Wrench
+  Monitor, CheckCircle2, XCircle, Clock, Eye, Wrench, Boxes
 } from 'lucide-react';
 
 /**
@@ -33,6 +34,20 @@ export default function PageActifs() {
     prix_unitaire: '',
     statut: 'en_stock',
   });
+
+  // ── Mode Batch ──────────────────────────────────────────────────────
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchType, setBatchType] = useState('manual'); // 'manual' | 'auto'
+  const [batchSerials, setBatchSerials] = useState('');
+  const [batchQuantity, setBatchQuantity] = useState('');
+  const [batchResult, setBatchResult] = useState(null);
+
+  // ── Édition ─────────────────────────────────────────────────────────
+  const [editingActif, setEditingActif] = useState(null);
+  const [editFormData, setEditFormData] = useState({});
+  const [editFormLoading, setEditFormLoading] = useState(false);
+  const [editFormError, setEditFormError] = useState(null);
+
   const { canAccess } = usePermissions();
 
   useEffect(() => {
@@ -70,7 +85,8 @@ export default function PageActifs() {
     } catch (err) { alert(err.message); }
   };
 
-  const handleCreate = async (e) => {
+  // ── Création (unitaire) ─────────────────────────────────────────────
+  const handleCreateSingle = async (e) => {
     e.preventDefault();
     setFormLoading(true);
     setFormError(null);
@@ -89,7 +105,7 @@ export default function PageActifs() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Erreur lors de la création de l’actif');
+      if (!res.ok) throw new Error(data.message || 'Erreur lors de la création de l\'actif');
       setShowCreateModal(false);
       setFormData({ produit_id: '', numero_serie: '', entrepot_id: '', emplacement: '', prix_unitaire: '', statut: 'en_stock' });
       list.refetch();
@@ -100,7 +116,106 @@ export default function PageActifs() {
     }
   };
 
-  // Colonnes d'export (valeurs brutes)
+  // ── Création (batch) ────────────────────────────────────────────────
+  const handleCreateBatch = async (e) => {
+    e.preventDefault();
+    setFormLoading(true);
+    setFormError(null);
+    setBatchResult(null);
+    try {
+      let numeros_serie;
+      if (batchType === 'manual') {
+        numeros_serie = batchSerials.split('\n').map(s => s.trim()).filter(Boolean);
+        if (numeros_serie.length === 0) throw new Error('Saisissez au moins un numéro de série.');
+      } else {
+        const qty = parseInt(batchQuantity);
+        if (!qty || qty < 1 || qty > 500) throw new Error('La quantité doit être entre 1 et 500.');
+        const prefix = `AUTO-${Date.now()}-`;
+        numeros_serie = Array.from({ length: qty }, (_, i) => `${prefix}${String(i + 1).padStart(3, '0')}`);
+      }
+
+      const res = await fetch('http://localhost:5000/api/actifs/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          produit_id: Number(formData.produit_id),
+          entrepot_id: Number(formData.entrepot_id),
+          emplacement: formData.emplacement || null,
+          prix_unitaire: formData.prix_unitaire ? Number(formData.prix_unitaire) : null,
+          statut: formData.statut,
+          numeros_serie,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Erreur lors de la création du lot');
+
+      setBatchResult(data);
+      list.refetch();
+    } catch (err) {
+      setFormError(err.message);
+    } finally {
+      setFormLoading(false);
+    }
+  };
+
+  const handleCreate = batchMode ? handleCreateBatch : handleCreateSingle;
+
+  const resetCreateModal = () => {
+    setShowCreateModal(false);
+    setBatchMode(false);
+    setBatchType('manual');
+    setBatchSerials('');
+    setBatchQuantity('');
+    setBatchResult(null);
+    setFormError(null);
+    setFormData({ produit_id: '', numero_serie: '', entrepot_id: '', emplacement: '', prix_unitaire: '', statut: 'en_stock' });
+  };
+
+  // ── Édition ─────────────────────────────────────────────────────────
+  const openEditModal = (actif) => {
+    setEditFormError(null);
+    setEditFormData({
+      produit_id: actif.produit_id || '',
+      numero_serie: actif.numero_serie || '',
+      entrepot_id: actif.entrepot_id || '',
+      emplacement: actif.emplacement || '',
+      prix_unitaire: actif.prix_unitaire != null ? actif.prix_unitaire : '',
+      statut: actif.statut || 'en_stock',
+    });
+    setEditingActif(actif);
+  };
+
+  const handleEdit = async (e) => {
+    e.preventDefault();
+    setEditFormLoading(true);
+    setEditFormError(null);
+    try {
+      const res = await fetch(`http://localhost:5000/api/actifs/${editingActif.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          produit_id: Number(editFormData.produit_id),
+          numero_serie: editFormData.numero_serie,
+          entrepot_id: Number(editFormData.entrepot_id),
+          emplacement: editFormData.emplacement || null,
+          prix_unitaire: editFormData.prix_unitaire ? Number(editFormData.prix_unitaire) : null,
+          statut: editFormData.statut,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Erreur lors de la modification');
+      setEditingActif(null);
+      list.refetch();
+    } catch (err) {
+      setEditFormError(err.message);
+    } finally {
+      setEditFormLoading(false);
+    }
+  };
+
+  // ── Colonnes d'export (valeurs brutes) ─────────────────────────────
   const exportColumns = [
     { header: 'ID', accessor: 'id' },
     { header: 'N° Série', accessor: 'numero_serie' },
@@ -111,21 +226,8 @@ export default function PageActifs() {
     { header: 'Statut', accessor: 'statut' },
   ];
 
-  const statutBadge = (statut) => {
-    const map = {
-      en_stock:    { label: 'En stock',    cls: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20', icon: CheckCircle2 },
-      affecte:     { label: 'Affecté',     cls: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20',    icon: Monitor },
-      maintenance: { label: 'Maintenance', cls: 'bg-amber-500/10 text-amber-600 border-amber-500/20',       icon: Clock },
-      rebut:       { label: 'Rebut',       cls: 'bg-rose-500/10 text-rose-600 border-rose-500/20',          icon: XCircle },
-    };
-    const s = map[statut] || { label: statut || '—', cls: 'badge-ghost', icon: null };
-    const Icon = s.icon;
-    return (
-      <span className={`inline-flex items-center gap-1.5 badge badge-sm py-2 px-2.5 rounded-lg font-semibold border ${s.cls}`}>
-        {Icon && <Icon className="w-3 h-3" />} {s.label}
-      </span>
-    );
-  };
+  // Badge de statut unifié (composant partagé StatusBadge)
+  const statutBadge = (statut) => <StatusBadge status={statut} />;
 
   const columns = [
     {
@@ -160,6 +262,7 @@ export default function PageActifs() {
     {
       accessorKey: 'prix_unitaire',
       header: 'Prix (DA)',
+      meta: { align: 'right' },
       cell: (info) => {
         const val = parseFloat(info.getValue());
         return isNaN(val)
@@ -189,18 +292,57 @@ export default function PageActifs() {
           <Link href={`/actifs/${info.row.original.id}`} className="btn btn-ghost btn-xs rounded-lg text-base-content/60 hover:bg-base-200" title="Fiche actif & maintenance">
             <Eye className="w-3.5 h-3.5" />
           </Link>
-          {canDelete && <button onClick={() => handleDelete(info.row.original.id)} className="btn btn-ghost btn-xs rounded-lg text-rose-500 hover:bg-rose-500/10" title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>}
+          {canUpdate && <button onClick={() => openEditModal(info.row.original)} className="btn btn-ghost btn-xs rounded-lg text-amber-500 hover:bg-amber-500/10" title="Modifier"><Pencil className="w-3.5 h-3.5" /></button>}
+          {canDelete && <button onClick={() => handleDelete(info.row.original.id)} className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-error hover:bg-base-200" title="Supprimer"><Trash2 className="w-3.5 h-3.5" /></button>}
         </div>
       ),
     },
   ];
 
+  // ── Champs partagés entre création et édition ──────────────────────
+  const commonFields = [
+    { name: 'produit_id', label: 'Produit', type: 'select', required: true, placeholder: 'Sélectionner un produit', options: produits.map(p => ({ value: p.id, label: `${p.libelle}${p.sku ? ` - ${p.sku}` : ''}` })) },
+    { name: 'entrepot_id', label: 'Entrepôt', type: 'select', required: true, placeholder: 'Sélectionner un entrepôt', options: entrepots.map(e => ({ value: e.id, label: e.nom })) },
+    { name: 'emplacement', label: 'Emplacement', placeholder: 'Rayon A3' },
+    { name: 'prix_unitaire', label: 'Prix unitaire / coût d\'acquisition (DA)', type: 'number', min: 0, step: '0.01', placeholder: '0.00' },
+    { name: 'statut', label: 'Statut', type: 'select', options: [
+      { value: 'en_stock', label: 'En stock' },
+      { value: 'affecte', label: 'Affecté' },
+      { value: 'maintenance', label: 'Maintenance' },
+      { value: 'rebut', label: 'Rebut' },
+    ] },
+  ];
+
+  const createFieldsSingle = [
+    commonFields[0], // produit_id
+    { name: 'numero_serie', label: 'Numéro de série', required: true, placeholder: 'SN-2026-001' },
+    ...commonFields.slice(1),
+  ];
+
+  const editFields = [
+    commonFields[0], // produit_id
+    { name: 'numero_serie', label: 'Numéro de série', required: true, placeholder: 'SN-2026-001' },
+    ...commonFields.slice(1),
+  ];
+
+  // Sélecteur de mode (un actif / lot), affiché en haut des deux modales
+  const modeToggle = !batchResult ? (
+    <div className="flex gap-1 mb-5 p-1 bg-base-200/60 rounded-xl">
+      <button type="button" onClick={() => setBatchMode(false)} className={`btn btn-sm rounded-lg flex-1 gap-2 ${!batchMode ? 'btn-primary' : 'btn-ghost'}`}>
+        <Layers className="w-4 h-4" /> Un actif
+      </button>
+      <button type="button" onClick={() => setBatchMode(true)} className={`btn btn-sm rounded-lg flex-1 gap-2 ${batchMode ? 'btn-primary' : 'btn-ghost'}`}>
+        <Boxes className="w-4 h-4" /> Plusieurs (lot)
+      </button>
+    </div>
+  ) : null;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-base-100 to-base-200/50 p-4 sm:p-6 md:p-8">
+    <div className="min-h-screen bg-base-200 p-4 sm:p-6 md:p-8">
       <div className="max-w-7xl mx-auto space-y-8">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-base-200 pb-6">
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold tracking-tight text-base-content">
               Parc d'Actifs
             </h1>
             <p className="text-sm text-base-content/60 mt-1">{list.isFetching ? 'Chargement...' : `${list.total} actif(s) dans le parc.`}</p>
@@ -210,19 +352,19 @@ export default function PageActifs() {
               <RefreshCw className={`w-4 h-4 ${list.isFetching ? 'animate-spin' : ''}`} /> Actualiser
             </button>
             {canCreate && (
-              <button onClick={() => { setFormError(null); setShowCreateModal(true); }} className="btn btn-primary btn-sm rounded-xl gap-2 shadow-lg shadow-primary/25 hover:scale-105 transition-all">
-                <Plus className="w-4 h-4" /> Ajouter un actif
+              <button onClick={() => { setFormError(null); setBatchResult(null); setShowCreateModal(true); }} className="btn btn-primary btn-sm rounded-xl gap-2 shadow-lg shadow-primary/25 hover:scale-105 transition-all">
+                <Plus className="w-4 h-4" /> Ajouter des actifs
               </button>
             )}
           </div>
         </div>
 
         {list.isError ? (
-          <div className="alert alert-error shadow-lg rounded-2xl border border-rose-500/25 p-5 flex items-start gap-4">
-            <AlertCircle className="w-6 h-6 text-rose-600 mt-0.5 shrink-0" />
+          <div className="rounded-2xl border border-error/25 bg-error/5 p-5 flex items-start gap-4">
+            <AlertCircle className="w-6 h-6 text-error mt-0.5 shrink-0" />
             <div>
-              <h3 className="font-bold text-rose-800">Erreur</h3><p className="text-sm text-rose-700/80 mt-1">{list.error?.message}</p>
-              <button onClick={() => list.refetch()} className="btn btn-sm btn-outline border-rose-500/30 text-rose-800 font-semibold rounded-lg mt-4">Réessayer</button>
+              <h3 className="font-bold text-error">Erreur</h3><p className="text-sm text-base-content/70 mt-1">{list.error?.message}</p>
+              <button onClick={() => list.refetch()} className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Réessayer</button>
             </div>
           </div>
         ) : (
@@ -241,30 +383,189 @@ export default function PageActifs() {
           />
         )}
       </div>
-      {showCreateModal && (
+
+      {/* ── Modale de création (unitaire ou batch) ──────────────────────── */}
+      {showCreateModal && !batchMode && (
         <ResourceModal
           title="Ajouter un actif"
           icon={Layers}
-          fields={[
-            { name: 'produit_id', label: 'Produit', type: 'select', required: true, placeholder: 'Sélectionner un produit', options: produits.map(p => ({ value: p.id, label: `${p.libelle}${p.sku ? ` - ${p.sku}` : ''}` })) },
-            { name: 'numero_serie', label: 'Numéro de série', required: true, placeholder: 'SN-2026-001' },
-            { name: 'entrepot_id', label: 'Entrepôt', type: 'select', required: true, placeholder: 'Sélectionner un entrepôt', options: entrepots.map(e => ({ value: e.id, label: e.nom })) },
-            { name: 'emplacement', label: 'Emplacement', placeholder: 'Rayon A3' },
-            { name: 'prix_unitaire', label: 'Prix unitaire / coût d’acquisition (DA)', type: 'number', min: 0, step: '0.01', placeholder: '0.00' },
-            { name: 'statut', label: 'Statut', type: 'select', options: [
-              { value: 'en_stock', label: 'En stock' },
-              { value: 'affecte', label: 'Affecté' },
-              { value: 'maintenance', label: 'Maintenance' },
-              { value: 'rebut', label: 'Rebut' },
-            ] },
-          ]}
+          fields={createFieldsSingle}
           values={formData}
           error={formError}
           loading={formLoading}
           submitLabel="Créer"
           onChange={setFormData}
-          onClose={() => setShowCreateModal(false)}
-          onSubmit={handleCreate}
+          onClose={resetCreateModal}
+          onSubmit={handleCreateSingle}
+          headerExtra={modeToggle}
+        />
+      )}
+
+      {/* Modale batch : on la construit manuellement pour inclure le toggle et le textarea/quantité */}
+      {showCreateModal && batchMode && (
+        <div className="modal modal-open">
+          <div className="modal-box relative bg-base-100 rounded-xl shadow-xl border border-base-200 max-w-lg">
+            <button onClick={resetCreateModal} type="button" className="btn btn-sm btn-circle btn-ghost absolute right-3 top-3">✕</button>
+            <h3 className="font-bold text-lg flex items-center gap-2 mb-4">
+              <Boxes className="w-5 h-5 text-primary" /> Ajouter plusieurs actifs (lot)
+            </h3>
+
+            {modeToggle}
+
+            {formError && (
+              <div className="alert alert-error rounded-xl mb-4 py-2 text-sm">
+                <AlertCircle className="w-4 h-4" /><span>{formError}</span>
+              </div>
+            )}
+
+            {batchResult ? (
+              <div className="space-y-4">
+                <div className="alert alert-success rounded-xl py-3">
+                  <CheckCircle2 className="w-5 h-5" />
+                  <div>
+                    <p className="font-bold">{batchResult.nombre} actif(s) créé(s) avec succès !</p>
+                    <p className="text-sm mt-1">Valeur totale du lot : <span className="font-bold">{batchResult.valeur_totale?.toLocaleString('fr-FR')} DA</span></p>
+                  </div>
+                </div>
+                <div className="modal-action">
+                  <button onClick={resetCreateModal} className="btn btn-primary rounded-xl">Fermer</button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleCreateBatch} className="space-y-4">
+                {/* Produit */}
+                <div className="form-control">
+                  <label className="label"><span className="label-text font-semibold">Produit</span></label>
+                  <select required className="select select-bordered rounded-xl w-full" value={formData.produit_id} onChange={(e) => setFormData({ ...formData, produit_id: e.target.value })}>
+                    <option value="">Sélectionner un produit</option>
+                    {produits.map(p => <option key={p.id} value={p.id}>{p.libelle}{p.sku ? ` - ${p.sku}` : ''}</option>)}
+                  </select>
+                </div>
+                {/* Entrepôt */}
+                <div className="form-control">
+                  <label className="label"><span className="label-text font-semibold">Entrepôt</span></label>
+                  <select required className="select select-bordered rounded-xl w-full" value={formData.entrepot_id} onChange={(e) => setFormData({ ...formData, entrepot_id: e.target.value })}>
+                    <option value="">Sélectionner un entrepôt</option>
+                    {entrepots.map(e => <option key={e.id} value={e.id}>{e.nom}</option>)}
+                  </select>
+                </div>
+                {/* Emplacement */}
+                <div className="form-control">
+                  <label className="label"><span className="label-text font-semibold">Emplacement</span></label>
+                  <input type="text" placeholder="Rayon A3" className="input input-bordered rounded-xl w-full" value={formData.emplacement} onChange={(e) => setFormData({ ...formData, emplacement: e.target.value })} />
+                </div>
+                {/* Prix unitaire */}
+                <div className="form-control">
+                  <label className="label"><span className="label-text font-semibold">Prix unitaire (DA)</span></label>
+                  <input type="number" min="0" step="0.01" placeholder="0.00" className="input input-bordered rounded-xl w-full" value={formData.prix_unitaire} onChange={(e) => setFormData({ ...formData, prix_unitaire: e.target.value })} />
+                </div>
+                {/* Statut */}
+                <div className="form-control">
+                  <label className="label"><span className="label-text font-semibold">Statut</span></label>
+                  <select className="select select-bordered rounded-xl w-full" value={formData.statut} onChange={(e) => setFormData({ ...formData, statut: e.target.value })}>
+                    <option value="en_stock">En stock</option>
+                    <option value="affecte">Affecté</option>
+                    <option value="maintenance">Maintenance</option>
+                    <option value="rebut">Rebut</option>
+                  </select>
+                </div>
+
+                {/* Toggle type batch */}
+                <div className="divider text-xs text-base-content/50 font-semibold uppercase">Numéros de série</div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setBatchType('manual')} className={`btn btn-sm rounded-xl flex-1 ${batchType === 'manual' ? 'btn-primary' : 'btn-ghost border border-base-300'}`}>
+                    Saisie manuelle
+                  </button>
+                  <button type="button" onClick={() => setBatchType('auto')} className={`btn btn-sm rounded-xl flex-1 ${batchType === 'auto' ? 'btn-primary' : 'btn-ghost border border-base-300'}`}>
+                    Génération auto
+                  </button>
+                </div>
+
+                {batchType === 'manual' ? (
+                  <div className="form-control">
+                    <label className="label"><span className="label-text font-semibold">Numéros de série (un par ligne)</span></label>
+                    <textarea
+                      required
+                      className="textarea textarea-bordered rounded-xl w-full min-h-28 font-mono text-sm"
+                      placeholder={"SN-2026-001\nSN-2026-002\nSN-2026-003"}
+                      value={batchSerials}
+                      onChange={(e) => setBatchSerials(e.target.value)}
+                    />
+                    <label className="label">
+                      <span className="label-text-alt text-base-content/50">
+                        {batchSerials.split('\n').filter(s => s.trim()).length} numéro(s) détecté(s)
+                      </span>
+                    </label>
+                  </div>
+                ) : (
+                  <div className="form-control">
+                    <label className="label"><span className="label-text font-semibold">Quantité d'actifs à générer</span></label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      max="500"
+                      placeholder="Nombre d'actifs (ex : 10)"
+                      className="input input-bordered rounded-xl w-full"
+                      value={batchQuantity}
+                      onChange={(e) => setBatchQuantity(e.target.value)}
+                    />
+                    <label className="label">
+                      <span className="label-text-alt text-base-content/50">
+                        Les N° série seront générés automatiquement (AUTO-timestamp-001, 002...)
+                      </span>
+                    </label>
+                  </div>
+                )}
+
+                {/* Aperçu de la valeur totale du lot (live) */}
+                {(() => {
+                  const count = batchType === 'manual'
+                    ? batchSerials.split('\n').filter(s => s.trim()).length
+                    : (parseInt(batchQuantity) || 0);
+                  const pu = Number(formData.prix_unitaire) || 0;
+                  return (
+                    <div className="flex items-center justify-between rounded-xl bg-primary/5 border border-primary/15 px-4 py-3 mt-2">
+                      <div className="text-sm">
+                        <span className="font-semibold text-base-content/80">{count}</span>
+                        <span className="text-base-content/50"> actif(s) × </span>
+                        <span className="font-semibold text-base-content/80">{pu.toLocaleString('fr-FR')} DA</span>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[11px] text-base-content/50 font-semibold uppercase">Valeur totale du lot</p>
+                        <p className="text-lg font-bold text-primary">{(count * pu).toLocaleString('fr-FR')} DA</p>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="modal-action">
+                  <button type="button" onClick={resetCreateModal} className="btn btn-ghost rounded-xl">Annuler</button>
+                  <button type="submit" disabled={formLoading} className="btn btn-primary rounded-xl gap-2">
+                    {formLoading && <span className="loading loading-spinner loading-sm"></span>}
+                    Créer le lot
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+          <div className="modal-backdrop" onClick={resetCreateModal}></div>
+        </div>
+      )}
+
+      {/* ── Modale d'édition ────────────────────────────────────────────── */}
+      {editingActif && (
+        <ResourceModal
+          title={`Modifier l'actif #${editingActif.id}`}
+          icon={Pencil}
+          fields={editFields}
+          values={editFormData}
+          error={editFormError}
+          loading={editFormLoading}
+          submitLabel="Enregistrer"
+          onChange={setEditFormData}
+          onClose={() => setEditingActif(null)}
+          onSubmit={handleEdit}
         />
       )}
     </div>

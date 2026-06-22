@@ -13,6 +13,8 @@ exports.getStats = async (req, res) => {
       actifsParStatut,
       alertes,
       maintenance,
+      fluxMensuel,
+      actifsParCategorie,
     ] = await Promise.all([
       // KPIs globaux en une seule requête
       pool.query(`
@@ -50,6 +52,31 @@ exports.getStats = async (req, res) => {
         ORDER BY m.cree_le DESC
         LIMIT 6
       `),
+      // Flux mensuel entrées vs sorties sur les 12 derniers mois.
+      // generate_series garantit 12 points (mois vides = 0) pour un histogramme continu.
+      pool.query(`
+        SELECT
+          to_char(g.mois, 'YYYY-MM')                                          AS mois,
+          COUNT(*) FILTER (WHERE m.type_mouvement = 'entree')::int            AS entrees,
+          COUNT(*) FILTER (WHERE m.type_mouvement = 'sortie')::int            AS sorties
+        FROM generate_series(
+               date_trunc('month', NOW()) - INTERVAL '11 months',
+               date_trunc('month', NOW()),
+               INTERVAL '1 month'
+             ) AS g(mois)
+        LEFT JOIN mouvements m ON date_trunc('month', m.cree_le) = g.mois
+        GROUP BY g.mois
+        ORDER BY g.mois
+      `),
+      // Répartition des actifs par catégorie de produit (pour le donut)
+      pool.query(`
+        SELECT COALESCE(c.nom, 'Sans catégorie') AS categorie, COUNT(*)::int AS total
+        FROM actifs a
+        LEFT JOIN produits   p ON a.produit_id  = p.id
+        LEFT JOIN categories c ON p.categorie_id = c.id
+        GROUP BY COALESCE(c.nom, 'Sans catégorie')
+        ORDER BY total DESC
+      `),
     ]);
 
     const g = globaux.rows[0];
@@ -65,9 +92,11 @@ exports.getStats = async (req, res) => {
         tickets_en_cours:       Number(g.tickets_en_cours),
         alertes_achat:          Number(g.alertes_achat),
       },
-      actifs_par_statut: actifsParStatut.rows,
-      alertes_achat:     alertes.rows,
-      derniers_tickets:  maintenance.rows,
+      actifs_par_statut:    actifsParStatut.rows,
+      alertes_achat:        alertes.rows,
+      derniers_tickets:     maintenance.rows,
+      flux_mensuel:         fluxMensuel.rows,
+      actifs_par_categorie: actifsParCategorie.rows,
     });
   } catch (error) {
     console.error('Erreur (dashboard getStats):', error);

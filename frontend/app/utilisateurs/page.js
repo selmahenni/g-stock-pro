@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import DataTable from '../../components/DataTable';
+import { ActiveBadge, RoleBadge } from '../../components/StatusBadge';
 import usePermissions from '../../hooks/usePermissions';
-import { Users, UserCheck, ShieldAlert, Wrench, RefreshCw, AlertCircle, UserPlus, Pencil, Trash2, X, Eye, EyeOff } from 'lucide-react';
+import { Users, UserCheck, ShieldAlert, Wrench, RefreshCw, AlertCircle, UserPlus, Pencil, Trash2, X, Eye, EyeOff, Power } from 'lucide-react';
 
 /**
  * @typedef {Object} Utilisateur
@@ -44,6 +45,12 @@ export default function PageUtilisateurs() {
     mot_de_passe: '',
     role: 'consultant',
   });
+
+  // Identifiant de l'utilisateur connecté (pour les garde-fous d'auto-action)
+  const [currentUserId, setCurrentUserId] = useState(null);
+  useEffect(() => {
+    try { setCurrentUserId(Number(localStorage.getItem('userId'))); } catch { /* ignore */ }
+  }, []);
 
   useEffect(() => {
     /**
@@ -155,6 +162,22 @@ export default function PageUtilisateurs() {
     }
   };
 
+  /**
+   * Bascule le statut actif/inactif d'un utilisateur (super-admin).
+   */
+  const handleToggleStatut = async (user) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/utilisateurs/${user.id}/statut`, {
+        method: 'PATCH',
+        credentials: 'include',
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
+      setRefreshKey(prev => prev + 1);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   const openEditModal = (user) => {
     setSelectedUser(user);
     setFormData({
@@ -216,54 +239,12 @@ export default function PageUtilisateurs() {
     {
       accessorKey: 'role',
       header: 'Rôle',
-      cell: (info) => {
-        const val = info.getValue();
-        let badgeClass = 'badge-ghost';
-        let friendlyRole = val;
-
-        switch (val) {
-          case 'super_admin':
-            badgeClass = 'bg-rose-500/10 text-rose-600 border border-rose-500/20';
-            friendlyRole = 'Super Admin';
-            break;
-          case 'magasinier':
-            badgeClass = 'bg-amber-500/10 text-amber-600 border border-amber-500/20';
-            friendlyRole = 'Magasinier';
-            break;
-          case 'technicien':
-            badgeClass = 'bg-sky-500/10 text-sky-600 border border-sky-500/20';
-            friendlyRole = 'Technicien';
-            break;
-          case 'consultant':
-            badgeClass = 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20';
-            friendlyRole = 'Consultant';
-            break;
-        }
-
-        return (
-          <span className={`badge badge-md py-2.5 px-3 rounded-lg font-semibold ${badgeClass}`}>
-            {friendlyRole}
-          </span>
-        );
-      },
+      cell: (info) => <RoleBadge role={info.getValue()} size="md" />,
     },
     {
       accessorKey: 'est_actif',
       header: 'Statut',
-      cell: (info) => {
-        const estActif = info.getValue();
-        return estActif ? (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            Actif
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 border border-rose-500/20">
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-            Inactif
-          </span>
-        );
-      },
+      cell: (info) => <ActiveBadge active={!!info.getValue()} />,
     },
     {
       accessorKey: 'cree_le',
@@ -291,10 +272,34 @@ export default function PageUtilisateurs() {
         const user = info.row.original;
         return (
           <div className="flex items-center gap-1">
+            {canUpdate && (() => {
+              const estSoi = Number(user.id) === currentUserId;
+              const superAdminProtege = user.role === 'super_admin' && user.est_actif;
+              const bloque = estSoi || superAdminProtege;
+              const tip = estSoi
+                ? 'Vous ne pouvez pas modifier votre propre statut'
+                : superAdminProtege
+                  ? 'Un super-administrateur ne peut pas être désactivé'
+                  : user.est_actif ? 'Désactiver le compte' : 'Activer le compte';
+              return (
+                <button
+                  onClick={() => { if (!bloque) handleToggleStatut(user); }}
+                  disabled={bloque}
+                  className={`btn btn-ghost btn-xs rounded-lg tooltip ${
+                    bloque
+                      ? 'text-base-content/25 cursor-not-allowed'
+                      : user.est_actif ? 'text-base-content/40 hover:text-primary hover:bg-base-200' : 'text-base-content/40 hover:text-error hover:bg-base-200'
+                  }`}
+                  data-tip={tip}
+                >
+                  <Power className="w-3.5 h-3.5" />
+                </button>
+              );
+            })()}
             {canUpdate && (
               <button
                 onClick={() => openEditModal(user)}
-                className="btn btn-ghost btn-xs rounded-lg text-sky-500 hover:bg-sky-500/10 hover:text-sky-600 tooltip"
+                className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-primary hover:bg-base-200 hover:text-sky-600 tooltip"
                 data-tip="Modifier"
               >
                 <Pencil className="w-3.5 h-3.5" />
@@ -303,7 +308,7 @@ export default function PageUtilisateurs() {
             {canDelete && (
               <button
                 onClick={() => openDeleteModal(user)}
-                className="btn btn-ghost btn-xs rounded-lg text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 tooltip"
+                className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-error hover:bg-base-200 hover:text-error tooltip"
                 data-tip="Supprimer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -322,14 +327,14 @@ export default function PageUtilisateurs() {
   const technicians = utilisateurs.filter((u) => u.role === 'technicien' || u.role === 'magasinier').length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-base-100 to-base-200/50 p-4 sm:p-6 md:p-8">
+    <div className="min-h-screen bg-base-200 p-4 sm:p-6 md:p-8">
       {/* Container Principal */}
       <div className="max-w-7xl mx-auto space-y-8">
         
         {/* En-tête de page */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-base-200 pb-6">
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-base-content bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold tracking-tight text-base-content">
               Gestion des Utilisateurs
             </h1>
             <p className="text-sm text-base-content/60 mt-1">
@@ -415,14 +420,14 @@ export default function PageUtilisateurs() {
               <p className="text-sm text-base-content/60 font-medium animate-pulse">Chargement des données utilisateurs...</p>
             </div>
           ) : error ? (
-            <div className="alert alert-error shadow-lg rounded-2xl border border-rose-500/25 p-5 flex items-start gap-4">
-              <AlertCircle className="w-6 h-6 text-rose-600 mt-0.5 shrink-0" />
+            <div className="rounded-2xl border border-error/25 bg-error/5 p-5 flex items-start gap-4">
+              <AlertCircle className="w-6 h-6 text-error mt-0.5 shrink-0" />
               <div>
-                <h3 className="font-bold text-rose-800">Une erreur est survenue</h3>
-                <p className="text-sm text-rose-700/80 mt-1">{error}</p>
+                <h3 className="font-bold text-error">Une erreur est survenue</h3>
+                <p className="text-sm text-base-content/70 mt-1">{error}</p>
                 <button
                   onClick={() => setRefreshKey((prev) => prev + 1)}
-                  className="btn btn-sm btn-outline border-rose-500/30 hover:bg-rose-500 hover:border-transparent text-rose-800 font-semibold rounded-lg mt-4 transition-all"
+                  className="btn btn-sm btn-outline border-error/40 hover:bg-rose-500 hover:border-transparent text-error font-semibold rounded-lg mt-4 transition-all"
                 >
                   Réessayer
                 </button>

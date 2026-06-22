@@ -130,7 +130,7 @@ export default function PageEntrepots() {
           <CheckCircle2 className="w-3 h-3" /> Actif
         </span>
       ) : (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 border border-rose-500/20">
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-error border border-rose-500/20">
           <XCircle className="w-3 h-3" /> Inactif
         </span>
       ),
@@ -149,19 +149,19 @@ export default function PageEntrepots() {
       header: 'Actions',
       cell: (info) => (
         <div className="flex items-center gap-1">
-          {canUpdate && <button className="btn btn-ghost btn-xs rounded-lg text-sky-500 hover:bg-sky-500/10"><Pencil className="w-3.5 h-3.5" /></button>}
-          {canDelete && <button onClick={() => handleDelete(info.row.original.id)} className="btn btn-ghost btn-xs rounded-lg text-rose-500 hover:bg-rose-500/10"><Trash2 className="w-3.5 h-3.5" /></button>}
+          {canUpdate && <button className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-primary hover:bg-base-200"><Pencil className="w-3.5 h-3.5" /></button>}
+          {canDelete && <button onClick={() => handleDelete(info.row.original.id)} className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-error hover:bg-base-200"><Trash2 className="w-3.5 h-3.5" /></button>}
         </div>
       ),
     }] : []),
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-base-100 to-base-200/50 p-4 sm:p-6 md:p-8">
+    <div className="min-h-screen bg-base-200 p-4 sm:p-6 md:p-8">
       <div className="max-w-7xl mx-auto space-y-8">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-base-200 pb-6">
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+            <h1 className="text-3xl font-bold tracking-tight text-base-content">
               Gestion des Entrepôts
             </h1>
             <p className="text-sm text-base-content/60 mt-1">Sites de stockage et emplacements physiques.</p>
@@ -200,9 +200,9 @@ export default function PageEntrepots() {
               <p className="text-sm text-base-content/60 font-medium animate-pulse">Chargement des entrepôts...</p>
             </div>
           ) : error ? (
-            <div className="alert alert-error shadow-lg rounded-2xl border border-rose-500/25 p-5 flex items-start gap-4">
-              <AlertCircle className="w-6 h-6 text-rose-600 mt-0.5 shrink-0" /><div><h3 className="font-bold text-rose-800">Erreur</h3><p className="text-sm text-rose-700/80 mt-1">{error}</p>
-                <button onClick={() => setRefreshKey(p => p + 1)} className="btn btn-sm btn-outline border-rose-500/30 text-rose-800 font-semibold rounded-lg mt-4">Réessayer</button></div>
+            <div className="rounded-2xl border border-error/25 bg-error/5 p-5 flex items-start gap-4">
+              <AlertCircle className="w-6 h-6 text-error mt-0.5 shrink-0" /><div><h3 className="font-bold text-error">Erreur</h3><p className="text-sm text-base-content/70 mt-1">{error}</p>
+                <button onClick={() => setRefreshKey(p => p + 1)} className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Réessayer</button></div>
             </div>
           ) : (
             <DataTable columns={columns} data={entrepots} searchPlaceholder="Rechercher par nom, adresse..." />
