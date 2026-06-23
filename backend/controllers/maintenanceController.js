@@ -1,6 +1,8 @@
 // controllers/maintenanceController.js
 const Maintenance = require('../models/Maintenance');
 const maintenanceService = require('../services/maintenanceService');
+const notificationService = require('../services/notificationService');
+const pool = require('../config/db');
 
 /**
  * @function getAllMaintenances
@@ -10,22 +12,31 @@ exports.getAllMaintenances = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
+    const search = (req.query.search || '').trim();
+    const type = req.query.type || null;       // 'preventif' | 'curatif'
+    const statut = req.query.statut || null;   // 'planifie' | 'en_cours' | 'termine' | 'annule'
 
-    const tickets = await Maintenance.findAll();
-    const totalItems = tickets.length;
-    const totalPages = Math.ceil(totalItems / limit);
-    const startIndex = (page - 1) * limit;
+    const { rows, total } = await Maintenance.findPaginated({ page, limit, search, type, statut });
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    const { rows: s } = await pool.query(`
+      SELECT COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE statut='planifie')::int AS planifie,
+             COUNT(*) FILTER (WHERE statut='en_cours')::int AS en_cours,
+             COUNT(*) FILTER (WHERE statut='termine')::int  AS termine
+      FROM maintenances`);
 
     res.status(200).json({
+      stats: s[0],
       metadata: {
-        total_items: totalItems,
+        total_items: total,
         total_pages: totalPages,
         current_page: page,
         per_page: limit,
         has_next_page: page < totalPages,
         has_previous_page: page > 1,
       },
-      maintenances: tickets.slice(startIndex, startIndex + limit),
+      maintenances: rows,
     });
   } catch (error) {
     console.error('Erreur (getAllMaintenances):', error);
@@ -76,6 +87,7 @@ exports.declarerPanne = async (req, res) => {
     res.status(201).json({ message: 'Panne déclarée. Les techniciens ont été notifiés.', maintenance: ticket });
   } catch (error) {
     console.error('Erreur (declarerPanne):', error);
+    if (error.status) return res.status(error.status).json({ message: error.message });
     res.status(500).json({ message: 'Erreur lors de la déclaration de la panne.' });
   }
 };
@@ -108,17 +120,46 @@ exports.enregistrerEntretien = async (req, res) => {
  */
 exports.updateMaintenance = async (req, res) => {
   try {
+    // État AVANT mise à jour (pour détecter un vrai changement de statut)
+    const avant = await Maintenance.findById(req.params.id);
+
     const updated = await Maintenance.update(req.params.id, req.body);
     if (!updated) return res.status(404).json({ message: 'Ticket non trouvé pour la mise à jour.' });
 
-    // Si le ticket est désormais « terminé », resynchroniser l'actif :
-    // recalcul de la prochaine échéance préventive + sortie de maintenance.
-    // (Corrige le « En retard » persistant après clôture via l'édition.)
-    if (updated.statut === 'termine' && updated.actif_id) {
+    // Resynchronisation de l'actif à CHAQUE changement de statut (cohérence statut + échéance).
+    //  - « terminé » : clôture (ferme les planifiés résiduels) + resync.
+    //  - autres transitions (planifié, en_cours, annulé) : resync général.
+    if (updated.actif_id) {
       try {
-        await maintenanceService.synchroniserApresCloture(updated.actif_id);
+        if (updated.statut === 'termine') {
+          await maintenanceService.synchroniserApresCloture(updated.actif_id);
+        } else {
+          await maintenanceService.synchroniserActif(updated.actif_id);
+        }
       } catch (err) {
-        console.error('❌ Resync actif après clôture du ticket :', err.message);
+        console.error('❌ Resync actif (maj ticket) :', err.message);
+      }
+    }
+
+    // Notification si le ticket BASCULE vers un état nécessitant une action :
+    //  - en_cours  → intervention en cours
+    //  - planifie  → maintenance à planifier
+    // Destinataires : techniciens + super_admin (in-app + e-mail), via le ciblage centralisé.
+    const statutChange = avant && avant.statut !== updated.statut;
+    if (statutChange && updated.actif_id && ['en_cours', 'planifie'].includes(updated.statut)) {
+      try {
+        const ctx = await maintenanceService.getActifContext(updated.actif_id);
+        const serie = ctx?.numero_serie || `#${updated.actif_id}`;
+        const prod = ctx?.produit_libelle ? ` (${ctx.produit_libelle})` : '';
+        const infos = updated.statut === 'en_cours'
+          ? { titre: 'Maintenance en cours',     message: `Intervention de maintenance en cours sur l'actif ${serie}${prod}.` }
+          : { titre: 'Maintenance à planifier',  message: `Une maintenance est planifiée pour l'actif ${serie}${prod}.` };
+        notificationService.notifierTechniciens(
+          { numero_serie: serie, produit_libelle: ctx?.produit_libelle },
+          { ...infos, lien: `/actifs/${updated.actif_id}` }
+        ).catch(err => console.error('❌ Notif maj maintenance échouée:', err.message));
+      } catch (err) {
+        console.error('❌ Préparation notif maj maintenance :', err.message);
       }
     }
 

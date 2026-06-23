@@ -11,14 +11,14 @@ const pool = require('../config/db'); // Accès DB pour écrire dans la table no
  * Règles appliquées :
  *   - alerte_stock → notif : super_admin + magasinier ; e-mail : super_admin SEULEMENT.
  *   - mouvement    → notif : super_admin + magasinier ; e-mail : aucun.
- *   - maintenance  → notif + e-mail : technicien (exclusivement).
+ *   - maintenance  → notif SEULEMENT (pas d'e-mail) : technicien ET super_admin.
  *   - consultant   → AUCUNE notification (absent de toutes les listes).
  * Impossible d'envoyer à un rôle/canal non prévu par cette table.
  */
 const CIBLES_PAR_TYPE = {
   alerte_stock: { notif: ['super_admin', 'magasinier'], email: ['super_admin'] },
   mouvement:    { notif: ['super_admin', 'magasinier'], email: [] },
-  maintenance:  { notif: ['technicien'],                email: ['technicien'] },
+  maintenance:  { notif: ['technicien', 'super_admin'], email: [] },
 };
 
 /**
@@ -201,24 +201,13 @@ class NotificationService {
 
       const titre = 'Nouvelle maintenance';
       const message = `Intervention requise sur l'actif ${actif.numero_serie}.`;
-      const avecEmail = Boolean(technicien.adresse_email);
 
+      // Maintenance = notification in-app uniquement (aucun e-mail).
       await pool.query(
         `INSERT INTO notifications (utilisateur_id, titre, type_notif, message, lien, email_envoye)
-         VALUES ($1, $2, 'maintenance', $3, '/maintenances', $4)`,
-        [technicien.id, titre, message, avecEmail]
+         VALUES ($1, $2, 'maintenance', $3, '/maintenances', FALSE)`,
+        [technicien.id, titre, message]
       );
-
-      if (avecEmail) {
-        emailService.envoyerEmail(
-          technicien.adresse_email,
-          '🔧 G-Stock Pro : Nouvelle maintenance assignée',
-          `<h2>Nouvelle intervention requise</h2>
-           <p>Bonjour ${technicien.nom_complet || ''},</p>
-           <p>Une opération de maintenance a été planifiée pour l'équipement (N° de série : ${actif.numero_serie}).</p>
-           <p>Merci de consulter le tableau de bord pour plus de détails.</p>`
-        ).catch(err => console.error('❌ E-mail maintenance assignée échoué:', err.message));
-      }
     } catch (error) {
       console.error('❌ Erreur interne dans notifierNouvelleMaintenance :', error);
     }

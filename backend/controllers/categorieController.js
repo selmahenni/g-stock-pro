@@ -1,5 +1,6 @@
 // controllers/categorieController.js
 const Categorie = require('../models/Categorie');
+const pool = require('../config/db');
 
 /**
  * @function getAllCategories
@@ -11,26 +12,27 @@ exports.getAllCategories = async (req, res) => {
   try {
     const page  = parseInt(req.query.page)  || 1;
     const limit = parseInt(req.query.limit) || 10;
+    const search = (req.query.search || '').trim();
 
-    const toutesLesCategories = await Categorie.findAll();
+    const { rows, total } = await Categorie.findPaginated({ page, limit, search });
+    const totalPages = Math.ceil(total / limit) || 1;
 
-    const totalItems = toutesLesCategories.length;
-    const totalPages = Math.ceil(totalItems / limit);
-    const startIndex = (page - 1) * limit;
-    const endIndex   = startIndex + limit;
-
-    const categoriesPagines = toutesLesCategories.slice(startIndex, endIndex);
+    const { rows: s } = await pool.query(`
+      SELECT COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE description IS NOT NULL AND description <> '')::int AS avec_description
+      FROM categories`);
 
     res.status(200).json({
+      stats: s[0],
       metadata: {
-        total_items:       totalItems,
+        total_items:       total,
         total_pages:       totalPages,
         current_page:      page,
         per_page:          limit,
         has_next_page:     page < totalPages,
         has_previous_page: page > 1,
       },
-      categories: categoriesPagines,
+      categories: rows,
     });
   } catch (error) {
     console.error('Erreur (getAllCategories):', error);

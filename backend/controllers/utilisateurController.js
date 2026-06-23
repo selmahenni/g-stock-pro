@@ -1,6 +1,7 @@
 // backend/controllers/utilisateurController.js
 
 const Utilisateur = require('../models/Utilisateur');
+const pool = require('../config/db');
 
 const bcrypt = require('bcryptjs');
 
@@ -200,32 +201,32 @@ const getAllUtilisateurs = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
+    const search = (req.query.search || '').trim();
+    const role = req.query.role || null; // 'super_admin' | 'magasinier' | 'technicien' | 'consultant'
 
-    // 1. On utilise ta méthode existante qui fonctionne pour tout récupérer
-    const tousLesUtilisateurs = await Utilisateur.findAll();
+    // Pagination + recherche + filtre rôle, poussés dans le SQL (page demandée uniquement)
+    const { rows, total } = await Utilisateur.findPaginated({ page, limit, search, role });
+    const totalPages = Math.ceil(total / limit) || 1;
 
-    // 2. Pagination "en mémoire" avec Javascript
-    const totalItems = tousLesUtilisateurs.length;
-    const totalPages = Math.ceil(totalItems / limit);
-    
-    // Calcul de l'index de début et de fin pour couper le tableau
-    const startIndex = (page - 1) * limit;
-    const endIndex = startIndex + limit;
-    
-    // On extrait juste la portion du tableau qui nous intéresse
-    const utilisateursPagines = tousLesUtilisateurs.slice(startIndex, endIndex);
+    // Compteurs GLOBAUX (indépendants de la page/du filtre) pour les cartes de stats
+    const { rows: s } = await pool.query(`
+      SELECT COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE est_actif)::int                              AS actifs,
+             COUNT(*) FILTER (WHERE role = 'super_admin')::int                   AS super_admins,
+             COUNT(*) FILTER (WHERE role IN ('technicien','magasinier'))::int    AS techniciens
+      FROM utilisateurs`);
 
-    // 3. Envoi de la réponse
     res.status(200).json({
+      stats: s[0],
       metadata: {
-        total_items: totalItems,
+        total_items: total,
         total_pages: totalPages,
         current_page: page,
         per_page: limit,
         has_next_page: page < totalPages,
         has_previous_page: page > 1
       },
-      utilisateurs: utilisateursPagines
+      utilisateurs: rows
     });
   } catch (error) {
     // Si ça plante, le terminal de VS Code t'affichera la cause exacte

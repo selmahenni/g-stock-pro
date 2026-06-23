@@ -1,16 +1,46 @@
 // controllers/entrepotController.js
 const Entrepot = require('../models/Entrepot');
+const pool = require('../config/db');
 
 /**
  * @function getEntrepots
- * @description Récupère la liste de tous les entrepôts.
- * @param {Object} req - Objet de requête Express.
- * @param {Object} res - Objet de réponse Express.
+ * @description Liste des entrepôts.
+ *  - SANS ?page/?limit : tableau brut complet (rétrocompat — utilisé par les menus déroulants).
+ *  - AVEC ?page/?limit  : enveloppe paginée + recherche + stats (tableau de la page Entrepôts).
  */
 exports.getEntrepots = async (req, res) => {
   try {
-    const entrepots = await Entrepot.findAll();
-    res.status(200).json(entrepots);
+    // Mode liste complète (dropdowns) : pas de pagination demandée → tableau brut.
+    if (!req.query.page && !req.query.limit) {
+      const entrepots = await Entrepot.findAll();
+      return res.status(200).json(entrepots);
+    }
+
+    const page  = parseInt(req.query.page)  || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = (req.query.search || '').trim();
+
+    const { rows, total } = await Entrepot.findPaginated({ page, limit, search });
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    const { rows: s } = await pool.query(`
+      SELECT COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE est_actif)::int   AS actifs,
+             COUNT(*) FILTER (WHERE NOT est_actif)::int AS inactifs
+      FROM entrepots`);
+
+    res.status(200).json({
+      stats: s[0],
+      metadata: {
+        total_items:       total,
+        total_pages:       totalPages,
+        current_page:      page,
+        per_page:          limit,
+        has_next_page:     page < totalPages,
+        has_previous_page: page > 1,
+      },
+      entrepots: rows,
+    });
   } catch (error) {
     console.error('Erreur (getEntrepots):', error);
     res.status(500).json({ message: 'Erreur lors de la récupération des entrepôts.' });

@@ -16,6 +16,13 @@ router.use(verifyToken);
 router.get('/', requireRole(['super_admin', 'magasinier', 'technicien', 'consultant']), actifController.getAllActifs);
 
 /**
+ * @route   GET /api/actifs/serie/:numero
+ * @desc    Récupérer un actif par son numéro de série exact (scan / audit)
+ * @access  Super-Admin, Magasinier, Technicien, Consultant
+ */
+router.get('/serie/:numero', requireRole(['super_admin', 'magasinier', 'technicien', 'consultant']), actifController.getActifBySerie);
+
+/**
  * @route   GET /api/actifs/:id
  * @desc    Récupérer un actif par son ID
  * @access  Super-Admin, Magasinier, Technicien, Consultant

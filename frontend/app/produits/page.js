@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import DataTableServer from '../../components/DataTableServer';
 import ExportButtons from '../../components/ExportButtons';
+import FilterSelect from '../../components/FilterSelect';
 import ResourceModal from '../../components/ResourceModal';
 import usePermissions from '../../hooks/usePermissions';
 import usePaginatedResource from '../../hooks/usePaginatedResource';
@@ -90,9 +91,8 @@ export default function PageProduits() {
     setFormError(null);
     // Valeur d'intervalle (nouveau format) avec repli sur l'ancien champ « jours »
     const valeur = produit.intervalle_valeur ?? produit.intervalle_maintenance_jours ?? '';
-    // Dérivation du type de maintenance
-    let maintenance_type = 'aucune';
-    if (produit.est_maintenable) maintenance_type = valeur ? 'preventive' : 'curative';
+    // Dérivation : maintenable = préventive (avec intervalle) ; sinon non maintenable.
+    const maintenance_type = produit.est_maintenable ? 'preventive' : 'aucune';
     setFormData({
       libelle: produit.libelle ?? '',
       sku: produit.sku ?? '',
@@ -141,6 +141,10 @@ export default function PageProduits() {
     setFormLoading(true);
     setFormError(null);
     try {
+      // Un produit maintenable DOIT avoir un intervalle + une unité.
+      if (formData.maintenance_type === 'preventive' && (!formData.intervalle_valeur || !formData.intervalle_unite)) {
+        throw new Error('Un produit maintenable doit avoir un intervalle de maintenance et une unité.');
+      }
       const payload = {
         categorie_id: formData.categorie_id ? Number(formData.categorie_id) : null,
         fournisseur_id: formData.fournisseur_id ? Number(formData.fournisseur_id) : null,
@@ -149,9 +153,9 @@ export default function PageProduits() {
         image_url: formData.image_url || null,
         stock_minimum: formData.stock_minimum ? Number(formData.stock_minimum) : 0,
         stock_critique: formData.stock_critique ? Number(formData.stock_critique) : 0,
-        // Maintenable si curative ou préventive
-        est_maintenable: formData.maintenance_type !== 'aucune',
-        // L'intervalle n'a de sens que pour la maintenance préventive
+        // Maintenable = maintenance préventive planifiée (avec intervalle obligatoire)
+        est_maintenable: formData.maintenance_type === 'preventive',
+        // L'intervalle n'a de sens que pour un produit maintenable
         intervalle_valeur: formData.maintenance_type === 'preventive' && formData.intervalle_valeur
           ? Number(formData.intervalle_valeur)
           : null,
@@ -315,7 +319,7 @@ export default function PageProduits() {
           const u = { minute: 'min', heure: 'h', jour: 'j', mois: 'mois', annee: 'an' }[p.intervalle_unite || 'jour'] || 'j';
           return <span className="inline-flex items-center gap-1 text-xs font-semibold text-sky-600"><Wrench className="w-3 h-3" /> Préventive · {valeur} {u}</span>;
         }
-        return <span className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-500"><Wrench className="w-3 h-3" /> Curative</span>;
+        return <span className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-500"><Wrench className="w-3 h-3" /> Maintenable</span>;
       },
     },
     {
@@ -395,7 +399,18 @@ export default function PageProduits() {
             onSearchChange={list.onSearchChange}
             loading={list.isFetching}
             searchPlaceholder="Rechercher par libellé, SKU..."
-            toolbar={<ExportButtons filename="produits" title="Catalogue Produits" columns={exportColumns} fetchRows={list.fetchAll} formats={['excel']} />}
+            toolbar={
+              <div className="flex items-center gap-2 flex-wrap">
+                <FilterSelect
+                  value={list.filters.categorie_id}
+                  onChange={(v) => list.setFilters({ ...list.filters, categorie_id: v })}
+                  options={categories.map(c => ({ value: c.id, label: c.nom }))}
+                  allLabel="Toutes les catégories"
+                  title="Filtrer par catégorie"
+                />
+                <ExportButtons filename="produits" title="Catalogue Produits" columns={exportColumns} fetchRows={list.fetchAll} formats={['excel']} />
+              </div>
+            }
           />
         )}
       </div>
@@ -422,20 +437,21 @@ export default function PageProduits() {
             {
               name: 'maintenance_type', label: 'Type de maintenance', type: 'select',
               options: [
-                { value: 'aucune', label: 'Aucune (non maintenable)' },
-                { value: 'curative', label: 'Curative (à la demande)' },
-                { value: 'preventive', label: 'Préventive (planifiée)' },
+                { value: 'aucune', label: 'Non maintenable' },
+                { value: 'preventive', label: 'Maintenable (maintenance préventive planifiée)' },
               ],
             },
             {
               name: 'intervalle_valeur',
-              label: formData.maintenance_type === 'preventive' ? 'Intervalle — valeur' : 'Intervalle — valeur (préventive uniquement)',
+              label: 'Intervalle — valeur',
               type: 'number', min: 1,
+              required: formData.maintenance_type === 'preventive',
               disabled: formData.maintenance_type !== 'preventive',
-              placeholder: formData.maintenance_type === 'preventive' ? 'Ex : 5' : 'Choisissez « Préventive »',
+              placeholder: formData.maintenance_type === 'preventive' ? 'Ex : 7 (obligatoire)' : 'Produit maintenable uniquement',
             },
             {
               name: 'intervalle_unite', label: 'Intervalle — unité', type: 'select',
+              required: formData.maintenance_type === 'preventive',
               disabled: formData.maintenance_type !== 'preventive',
               options: [
                 { value: 'minute', label: 'Minute(s)' },

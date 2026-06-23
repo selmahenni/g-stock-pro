@@ -15,6 +15,19 @@ class Entrepot {
     return rows;
   }
 
+  /** Page d'entrepôts (pagination + recherche serveur). */
+  static async findPaginated({ page = 1, limit = 10, search = '' } = {}) {
+    const offset = (page - 1) * limit;
+    const params = [];
+    let where = '';
+    if (search) { params.push(`%${search}%`); where = 'WHERE (nom ILIKE $1 OR adresse ILIKE $1)'; }
+    const { rows: cnt } = await pool.query(`SELECT COUNT(*)::int AS total FROM entrepots ${where}`, params);
+    const dp = [...params, limit, offset];
+    const { rows } = await pool.query(
+      `SELECT * FROM entrepots ${where} ORDER BY cree_le DESC, id DESC LIMIT $${dp.length - 1} OFFSET $${dp.length}`, dp);
+    return { rows, total: cnt[0].total };
+  }
+
   /**
    * Récupère un entrepôt spécifique par son ID.
    * @param {number|string} id - L'identifiant de l'entrepôt.

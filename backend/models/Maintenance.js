@@ -22,10 +22,45 @@ class Maintenance {
       LEFT JOIN actifs a       ON m.actif_id      = a.id
       LEFT JOIN produits p     ON a.produit_id    = p.id
       LEFT JOIN utilisateurs u ON m.technicien_id = u.id
-      ORDER BY m.cree_le DESC
+      ORDER BY m.cree_le DESC, m.id DESC
     `;
     const { rows } = await pool.query(query);
     return rows;
+  }
+
+  /**
+   * Page de tickets (pagination + recherche + filtres type/statut, côté serveur).
+   * @param {Object} opts - { page, limit, search, type, statut }
+   * @returns {Promise<{rows: Array, total: number}>}
+   */
+  static async findPaginated({ page = 1, limit = 10, search = '', type = null, statut = null } = {}) {
+    const offset = (page - 1) * limit;
+    const params = [];
+    const clauses = [];
+    if (search) {
+      params.push(`%${search}%`);
+      const i = params.length;
+      clauses.push(`(a.numero_serie ILIKE $${i} OR p.libelle ILIKE $${i} OR u.nom_complet ILIKE $${i})`);
+    }
+    if (type)   { params.push(type);   clauses.push(`m.type_maintenance = $${params.length}`); }
+    if (statut) { params.push(statut); clauses.push(`m.statut = $${params.length}`); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const joins = `
+      FROM maintenances m
+      LEFT JOIN actifs a       ON m.actif_id      = a.id
+      LEFT JOIN produits p     ON a.produit_id    = p.id
+      LEFT JOIN utilisateurs u ON m.technicien_id = u.id`;
+
+    const { rows: cnt } = await pool.query(`SELECT COUNT(*)::int AS total ${joins} ${where}`, params);
+    const dp = [...params, limit, offset];
+    const { rows } = await pool.query(
+      `SELECT m.*, a.numero_serie AS actif_serie, p.libelle AS produit_libelle, u.nom_complet AS technicien_nom
+       ${joins} ${where}
+       ORDER BY m.cree_le DESC, m.id DESC
+       LIMIT $${dp.length - 1} OFFSET $${dp.length}`,
+      dp
+    );
+    return { rows, total: cnt[0].total };
   }
 
   /**
@@ -39,7 +74,7 @@ class Maintenance {
       FROM maintenances m
       LEFT JOIN utilisateurs u ON m.technicien_id = u.id
       WHERE m.actif_id = $1
-      ORDER BY m.cree_le DESC
+      ORDER BY m.cree_le DESC, m.id DESC
     `;
     const { rows } = await pool.query(query, [actifId]);
     return rows;

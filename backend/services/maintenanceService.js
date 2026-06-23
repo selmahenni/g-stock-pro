@@ -3,6 +3,37 @@ const pool = require('../config/db');
 const Maintenance = require('../models/Maintenance');
 const Actif = require('../models/Actif');
 const notificationService = require('./notificationService');
+const { ajusterStock } = require('./stockService');
+
+/**
+ * Change le statut d'un actif et ajuste le STOCK DISPONIBLE (stocks.quantite) UNIQUEMENT
+ * lorsqu'il FRANCHIT la frontière « en_stock » :
+ *   - en_stock → autre  : stock disponible -1  (ex. panne → maintenance),
+ *   - autre → en_stock  : stock disponible +1  (ex. retour d'entretien).
+ * Le parc TOTAL (nombre / valeur des actifs) reste inchangé : l'actif ne disparaît jamais
+ * de l'inventaire global, il devient simplement indisponible à l'affectation.
+ * Idempotent : aucun ajustement si le statut ne change pas réellement.
+ * @param {number} actifId
+ * @param {string} nouveauStatut
+ */
+async function definirStatutAvecStock(actifId, nouveauStatut) {
+  const { rows } = await pool.query(
+    'SELECT produit_id, entrepot_id, statut FROM actifs WHERE id = $1',
+    [actifId]
+  );
+  const a = rows[0];
+  if (!a || a.statut === nouveauStatut) return;
+
+  await Actif.setStatut(actifId, nouveauStatut);
+
+  const etaitDispo = a.statut === 'en_stock';
+  const devientDispo = nouveauStatut === 'en_stock';
+  if (etaitDispo && !devientDispo) {
+    await ajusterStock(a.produit_id, a.entrepot_id, -1);
+  } else if (!etaitDispo && devientDispo) {
+    await ajusterStock(a.produit_id, a.entrepot_id, +1);
+  }
+}
 
 /**
  * Calcule la date de la prochaine maintenance préventive d'un actif à partir
@@ -31,7 +62,7 @@ function calculerProchaineDate(produit, from = new Date()) {
 /** Récupère un actif + les infos produit utiles à la maintenance. */
 async function getActifContext(actifId) {
   const { rows } = await pool.query(
-    `SELECT a.id, a.numero_serie, a.statut, a.produit_id,
+    `SELECT a.id, a.numero_serie, a.statut, a.produit_id, a.cree_le,
             p.libelle AS produit_libelle, p.est_maintenable, p.intervalle_valeur, p.intervalle_unite
      FROM actifs a
      LEFT JOIN produits p ON a.produit_id = p.id
@@ -61,6 +92,14 @@ async function initialiserPreventive(actifId, from = new Date()) {
  * @returns {Promise<Object>} Le ticket créé.
  */
 async function declarerPanne(actifId, data = {}) {
+  // Garde-fou métier : seuls les actifs de produits MAINTENABLES peuvent tomber en panne.
+  const ctxAvant = await getActifContext(actifId);
+  if (!ctxAvant) { const e = new Error('Actif introuvable.'); e.status = 404; throw e; }
+  if (!ctxAvant.est_maintenable) {
+    const e = new Error("Cet actif n'est pas maintenable : aucune panne ne peut être déclarée.");
+    e.status = 400; throw e;
+  }
+
   const ticket = await Maintenance.create({
     actif_id: actifId,
     technicien_id: data.technicien_id || null,
@@ -69,7 +108,8 @@ async function declarerPanne(actifId, data = {}) {
     rapport: data.rapport || null,
   });
 
-  await Actif.setStatut(actifId, 'maintenance');
+  // Panne → maintenance : décrémente le stock DISPONIBLE (l'actif reste dans le parc total).
+  await definirStatutAvecStock(actifId, 'maintenance');
 
   const ctx = await getActifContext(actifId);
   notificationService.notifierTechniciens(
@@ -136,13 +176,17 @@ async function enregistrerEntretien(actifId, data = {}) {
     [actifId, ticket.id]
   );
 
-  // Recalcule la prochaine échéance préventive depuis maintenant
+  // Échéance préventive : SEULE une intervention PRÉVENTIVE la repousse (depuis maintenant).
+  // Une réparation CURATIVE (suite à une panne) ne décale PAS le calendrier préventif —
+  // l'intervalle de maintenance préventive reste le même.
   const ctx = await getActifContext(actifId);
-  const prochaine = calculerProchaineDate(ctx, new Date());
-  await Actif.setProchainePreventive(actifId, prochaine);
+  if (ticket.type_maintenance === 'preventif') {
+    await Actif.setProchainePreventive(actifId, calculerProchaineDate(ctx, new Date()));
+  }
 
-  // L'actif sort de maintenance s'il y était
-  if (ctx?.statut === 'maintenance') await Actif.setStatut(actifId, 'en_stock');
+  // Retour d'entretien : si l'actif était en maintenance, il revient « en_stock »
+  // et le stock DISPONIBLE est ré-incrémenté.
+  if (ctx?.statut === 'maintenance') await definirStatutAvecStock(actifId, 'en_stock');
 
   return ticket;
 }
@@ -187,48 +231,67 @@ async function verifierEcheancesPreventives() {
 }
 
 /**
- * Resynchronise un actif après la clôture d'un ticket (ex : ticket passé à « termine »
- * via l'édition). Recalcule la prochaine échéance préventive à partir de la DERNIÈRE
- * intervention terminée, et fait sortir l'actif de « maintenance » s'il n'a plus de
- * ticket ouvert. Corrige le cas où l'échéancier reste « en retard » après clôture.
+ * Synchronise l'état d'un actif à partir de SES TICKETS (idempotent), à appeler après
+ * TOUT changement de statut d'un ticket (édition incluse). Déduit l'état cohérent :
+ *  - Statut de l'actif : « maintenance » s'il existe un ticket EN COURS, sinon sortie de
+ *    maintenance (retour « en_stock »). Les statuts « affecte »/« rebut » (décisions
+ *    manuelles) ne sont jamais écrasés.
+ *  - Prochaine échéance préventive : recalculée depuis la DERNIÈRE intervention TERMINÉE
+ *    (ou la date de création de l'actif si aucune). Ainsi, rouvrir un ticket terminé
+ *    « annule » correctement l'avance de l'échéance, et clôturer la repousse.
  * @param {number} actifId
  */
-async function synchroniserApresCloture(actifId) {
+async function synchroniserActif(actifId) {
   const ctx = await getActifContext(actifId);
   if (!ctx) return;
 
-  // 1. Clôt les tickets préventifs PLANIFIÉS résiduels : l'échéance qui les a déclenchés
-  //    vient d'être traitée, ils sont donc obsolètes (sinon ils bloquent l'actif).
+  // 1. Statut de l'actif déduit des tickets : « maintenance » ssi un ticket est EN COURS.
+  const { rows: enCours } = await pool.query(
+    `SELECT 1 FROM maintenances WHERE actif_id = $1 AND statut = 'en_cours' LIMIT 1`,
+    [actifId]
+  );
+  const aEnCours = enCours.length > 0;
+  if (aEnCours && ctx.statut !== 'maintenance') {
+    await definirStatutAvecStock(actifId, 'maintenance'); // stock disponible -1
+  } else if (!aEnCours && ctx.statut === 'maintenance') {
+    await definirStatutAvecStock(actifId, 'en_stock');    // stock disponible +1
+  }
+
+  // 2. Prochaine échéance préventive depuis la dernière intervention PRÉVENTIVE terminée
+  //    (ou la création). Les réparations curatives n'entrent pas dans ce calcul.
+  const { rows } = await pool.query(
+    `SELECT MAX(COALESCE(date_intervention, cree_le::date)) AS derniere
+     FROM maintenances WHERE actif_id = $1 AND statut = 'termine' AND type_maintenance = 'preventif'`,
+    [actifId]
+  );
+  const base = rows[0]?.derniere ? new Date(rows[0].derniere) : new Date(ctx.cree_le || Date.now());
+  await Actif.setProchainePreventive(actifId, calculerProchaineDate(ctx, base));
+}
+
+/**
+ * Resynchronise un actif après la CLÔTURE d'un ticket (passage à « termine »).
+ * Clôt d'abord les tickets préventifs PLANIFIÉS résiduels (l'échéance qui les a déclenchés
+ * vient d'être traitée), puis applique la synchronisation générale de l'actif.
+ * Corrige le cas où l'échéancier reste « en retard » après clôture.
+ * @param {number} actifId
+ */
+async function synchroniserApresCloture(actifId) {
+  // Clôt les tickets préventifs PLANIFIÉS résiduels (obsolètes après une intervention).
   await pool.query(
     `UPDATE maintenances SET statut = 'termine'
      WHERE actif_id = $1 AND type_maintenance = 'preventif' AND statut = 'planifie'`,
     [actifId]
   );
-
-  // 2. Recalcule la prochaine échéance depuis la DERNIÈRE intervention terminée
-  const { rows } = await pool.query(
-    `SELECT MAX(COALESCE(date_intervention, cree_le::date)) AS derniere
-     FROM maintenances WHERE actif_id = $1 AND statut = 'termine'`,
-    [actifId]
-  );
-  const base = rows[0]?.derniere ? new Date(rows[0].derniere) : new Date();
-  await Actif.setProchainePreventive(actifId, calculerProchaineDate(ctx, base));
-
-  // 3. L'actif sort de « maintenance » s'il ne reste aucune intervention EN COURS
-  if (ctx.statut === 'maintenance') {
-    const { rows: enCours } = await pool.query(
-      `SELECT 1 FROM maintenances WHERE actif_id = $1 AND statut = 'en_cours' LIMIT 1`,
-      [actifId]
-    );
-    if (enCours.length === 0) await Actif.setStatut(actifId, 'en_stock');
-  }
+  await synchroniserActif(actifId);
 }
 
 module.exports = {
   calculerProchaineDate,
+  getActifContext,
   initialiserPreventive,
   declarerPanne,
   enregistrerEntretien,
   verifierEcheancesPreventives,
+  synchroniserActif,
   synchroniserApresCloture,
 };

@@ -10,6 +10,19 @@ class Categorie {
     return rows;
   }
 
+  /** Page de catégories (pagination + recherche serveur). */
+  static async findPaginated({ page = 1, limit = 10, search = '' } = {}) {
+    const offset = (page - 1) * limit;
+    const params = [];
+    let where = '';
+    if (search) { params.push(`%${search}%`); where = 'WHERE (nom ILIKE $1 OR description ILIKE $1)'; }
+    const { rows: cnt } = await pool.query(`SELECT COUNT(*)::int AS total FROM categories ${where}`, params);
+    const dp = [...params, limit, offset];
+    const { rows } = await pool.query(
+      `SELECT * FROM categories ${where} ORDER BY nom ASC, id ASC LIMIT $${dp.length - 1} OFFSET $${dp.length}`, dp);
+    return { rows, total: cnt[0].total };
+  }
+
   static async findById(id) {
     const { rows } = await pool.query('SELECT * FROM categories WHERE id = $1', [id]);
     return rows[0];

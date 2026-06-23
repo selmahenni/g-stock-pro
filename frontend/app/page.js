@@ -38,7 +38,7 @@ export default function PageAccueil() {
 
   // KPI principaux
   const kpis = [
-    { label: 'Stock total', value: fmt(k.stock_total), icon: Boxes, color: 'primary', href: '/inventaire' },
+    { label: 'Stock disponible', value: fmt(k.stock_total), icon: Boxes, color: 'primary', href: '/inventaire' },
     { label: 'Actifs en maintenance', value: fmt(k.actifs_en_maintenance), icon: Wrench, color: 'warning', href: '/maintenances' },
     { label: 'Alertes achat', value: fmt(k.alertes_achat), icon: ShoppingCart, color: 'error', href: '/inventaire' },
     { label: 'Valeur du parc', value: `${fmt(k.valeur_parc)} DA`, icon: DollarSign, color: 'success', href: '/actifs' },

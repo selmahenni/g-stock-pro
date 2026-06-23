@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { QRCodeCanvas } from 'qrcode.react';
 import ResourceModal from '../../../components/ResourceModal';
 import StatusBadge from '../../../components/StatusBadge';
 import usePermissions from '../../../hooks/usePermissions';
@@ -10,7 +11,7 @@ import { genererRapportMaintenance } from '../../../lib/pdfDocuments';
 import {
   ArrowLeft, RefreshCw, AlertCircle, Layers, Package, Building2, MapPin,
   DollarSign, Hash, Wrench, AlertTriangle, CalendarClock, CheckCircle2,
-  Monitor, Clock, XCircle, ShieldAlert, ClipboardCheck, FileDown,
+  Monitor, Clock, XCircle, ShieldAlert, ClipboardCheck, FileDown, QrCode, Printer,
 } from 'lucide-react';
 
 /**
@@ -100,6 +101,26 @@ export default function FicheActif() {
     }
   };
 
+  // ── Étiquette QR : impression d'une étiquette (QR + n° série + produit) ──
+  const qrRef = useRef(null);
+  const handlePrintQr = () => {
+    const canvas = qrRef.current?.querySelector('canvas');
+    if (!canvas || !actif) return;
+    const dataUrl = canvas.toDataURL('image/png');
+    const w = window.open('', '_blank', 'width=420,height=560');
+    if (!w) return;
+    w.document.write(`<!doctype html><html><head><title>Étiquette ${actif.numero_serie}</title></head>
+      <body style="font-family:system-ui,Segoe UI,sans-serif;text-align:center;padding:28px;margin:0">
+        <img src="${dataUrl}" style="width:240px;height:240px" />
+        <div style="font-size:20px;font-weight:700;margin-top:14px;letter-spacing:.5px">${actif.numero_serie}</div>
+        <div style="color:#475569;margin-top:4px">${actif.produit_libelle || ''}</div>
+        <div style="color:#94a3b8;font-size:12px;margin-top:2px">${actif.entrepot_nom || ''}</div>
+      </body></html>`);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { try { w.print(); } catch { /* ignore */ } }, 250);
+  };
+
   // ── Affichage (badges unifiés via le composant partagé StatusBadge) ──
   const statutBadge = (statut) => <StatusBadge status={statut} size="md" />;
 
@@ -163,7 +184,7 @@ export default function FicheActif() {
                 </div>
                 {/* Actions */}
                 <div className="flex flex-wrap gap-2">
-                  {canPanne && (
+                  {canPanne && actif.est_maintenable && (
                     <button onClick={() => openModal('panne')} className="btn btn-sm rounded-xl gap-2 bg-rose-500/10 text-error border border-rose-500/20 hover:bg-rose-500/20">
                       <ShieldAlert className="w-4 h-4" /> Déclarer une panne
                     </button>
@@ -191,6 +212,30 @@ export default function FicheActif() {
                 </span>
               </div>
             </div>
+
+            {/* Étiquette QR — UNIQUEMENT pour les actifs à n° de série AUTO-généré
+                (pas d'étiquette physique). Les actifs avec n° saisi manuellement / code-barres
+                existant ont déjà leur propre identifiant à scanner. */}
+            {actif.numero_serie?.startsWith('AUTO-') && (
+              <div className="bg-base-100 rounded-2xl border border-base-200 shadow-md p-6 flex flex-col sm:flex-row items-center gap-6">
+                <div ref={qrRef} className="p-3 bg-white rounded-xl border border-base-200 shrink-0">
+                  <QRCodeCanvas value={actif.numero_serie || ' '} size={132} level="M" marginSize={2} />
+                </div>
+                <div className="flex-1 text-center sm:text-left">
+                  <h2 className="font-bold text-base-content flex items-center gap-2 justify-center sm:justify-start">
+                    <QrCode className="w-4 h-4 text-primary" /> Étiquette QR
+                  </h2>
+                  <p className="text-sm text-base-content/60 mt-1">
+                    Actif sans identifiant physique : imprime et colle cette étiquette sur l'équipement.
+                    Le scan (saisie ou audit) lira son n° de série
+                    <span className="font-mono font-semibold text-base-content/80"> {actif.numero_serie}</span>.
+                  </p>
+                  <button onClick={handlePrintQr} className="btn btn-outline btn-primary btn-sm rounded-xl gap-2 mt-3">
+                    <Printer className="w-4 h-4" /> Imprimer l'étiquette
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Historique de maintenance */}
             <div className="bg-base-100 rounded-2xl border border-base-200 shadow-md overflow-hidden">
@@ -230,13 +275,15 @@ export default function FicheActif() {
                           <td className="py-3 px-5 text-sm text-base-content/70 max-w-[260px]"><span className="line-clamp-2">{t.rapport || '—'}</span></td>
                           <td className="py-3 px-5 text-sm font-semibold">{t.cout != null ? `${parseFloat(t.cout).toLocaleString('fr-FR')} DA` : '—'}</td>
                           <td className="py-3 px-5">
-                            <button
-                              onClick={() => genererRapportMaintenance({ ...t, actif_serie: actif.numero_serie, produit_libelle: actif.produit_libelle })}
-                              className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-error hover:bg-base-200"
-                              title="Générer le rapport (PDF)"
-                            >
-                              <FileDown className="w-3.5 h-3.5" />
-                            </button>
+                            {t.statut === 'termine' ? (
+                              <button
+                                onClick={() => genererRapportMaintenance({ ...t, actif_serie: actif.numero_serie, produit_libelle: actif.produit_libelle })}
+                                className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-error hover:bg-base-200"
+                                title="Générer le rapport (PDF)"
+                              >
+                                <FileDown className="w-3.5 h-3.5" />
+                              </button>
+                            ) : <span className="text-base-content/30">—</span>}
                           </td>
                         </tr>
                       ))}

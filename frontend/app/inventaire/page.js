@@ -1,11 +1,18 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import DataTableServer from '../../components/DataTableServer';
 import ExportButtons from '../../components/ExportButtons';
+import FilterSelect from '../../components/FilterSelect';
 import usePaginatedResource from '../../hooks/usePaginatedResource';
+import usePermissions from '../../hooks/usePermissions';
 import { StockAlertBadge } from '../../components/StatusBadge';
-import { Boxes, AlertTriangle, RefreshCw, AlertCircle } from 'lucide-react';
+import { Boxes, AlertTriangle, RefreshCw, AlertCircle, ScanLine, ClipboardCheck } from 'lucide-react';
+
+// Scanners caméra : chargés uniquement côté client.
+const AuditScanner = dynamic(() => import('../../components/AuditScanner'), { ssr: false }); // audit article-par-article
+const AuditSession = dynamic(() => import('../../components/AuditSession'), { ssr: false }); // session cumulative
 
 /**
  * @component PageInventaire
@@ -14,6 +21,20 @@ import { Boxes, AlertTriangle, RefreshCw, AlertCircle } from 'lucide-react';
  */
 export default function PageInventaire() {
   const inv = usePaginatedResource('stocks', 'stocks', { pageSize: 10 });
+  const { canAccess } = usePermissions();
+  const [showAudit, setShowAudit] = useState(false);
+  const [showSession, setShowSession] = useState(false);
+  const [entrepots, setEntrepots] = useState([]);
+  const canAudit = canAccess('actifs', 'update'); // super_admin, magasinier (mise à jour pendant l'audit)
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('http://localhost:5000/api/entrepots', { credentials: 'include' });
+        if (res.ok) { const d = await res.json(); setEntrepots(Array.isArray(d) ? d : (d.entrepots || [])); }
+      } catch { /* le filtre restera vide */ }
+    })();
+  }, []);
 
   const columns = [
     {
@@ -32,8 +53,18 @@ export default function PageInventaire() {
     { accessorKey: 'entrepot_nom', header: 'Entrepôt', cell: (info) => <span className="text-sm">{info.getValue() || '—'}</span> },
     { accessorKey: 'numero_lot', header: 'N° Lot', cell: (info) => <span className="font-mono text-xs text-base-content/60">{info.getValue() || '—'}</span> },
     {
+      accessorKey: 'numeros_serie',
+      header: 'N° Série',
+      cell: (info) => {
+        const v = info.getValue();
+        return v
+          ? <span className="font-mono text-xs text-base-content/70 line-clamp-2 max-w-[220px]" title={v}>{v}</span>
+          : <span className="text-base-content/40">—</span>;
+      },
+    },
+    {
       accessorKey: 'quantite',
-      header: 'Quantité',
+      header: 'Disponible',
       meta: { align: 'right' },
       cell: (info) => <span className="font-bold tabular-nums">{info.getValue() ?? 0}</span>,
     },
@@ -66,6 +97,7 @@ export default function PageInventaire() {
     { header: 'SKU', accessor: 'sku' },
     { header: 'Entrepôt', accessor: 'entrepot_nom' },
     { header: 'N° Lot', accessor: 'numero_lot' },
+    { header: 'N° Série', accessor: (r) => r.numeros_serie || '' },
     { header: 'Quantité', accessor: 'quantite' },
     { header: 'Stock minimum', accessor: 'stock_minimum' },
     { header: 'Seuil critique', accessor: 'stock_critique' },
@@ -82,9 +114,19 @@ export default function PageInventaire() {
             </h1>
             <p className="text-sm text-base-content/60 mt-1">{inv.isFetching ? 'Chargement...' : `${inv.total} ligne(s) de stock`}</p>
           </div>
-          <button onClick={() => inv.refetch()} disabled={inv.isFetching} className="btn btn-outline btn-primary btn-sm rounded-xl gap-2 hover:scale-105 transition-all">
-            <RefreshCw className={`w-4 h-4 ${inv.isFetching ? 'animate-spin' : ''}`} /> Actualiser
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => inv.refetch()} disabled={inv.isFetching} className="btn btn-outline btn-primary btn-sm rounded-xl gap-2 hover:scale-105 transition-all">
+              <RefreshCw className={`w-4 h-4 ${inv.isFetching ? 'animate-spin' : ''}`} /> Actualiser
+            </button>
+            <button onClick={() => setShowSession(true)} className="btn btn-outline btn-primary btn-sm rounded-xl gap-2 hover:scale-105 transition-all" title="Session d'audit physique (scan en continu)">
+              <ClipboardCheck className="w-4 h-4" /> Session d'audit
+            </button>
+            {canAudit && (
+              <button onClick={() => setShowAudit(true)} className="btn btn-primary btn-sm rounded-xl gap-2 shadow-lg shadow-primary/25 hover:scale-105 transition-all" title="Audit article par article (correction rapide)">
+                <ScanLine className="w-4 h-4" /> Mode Audit
+              </button>
+            )}
+          </div>
         </div>
 
         {inv.isError ? (
@@ -107,11 +149,32 @@ export default function PageInventaire() {
             search={inv.search}
             onSearchChange={inv.onSearchChange}
             loading={inv.isFetching}
-            searchPlaceholder="Rechercher par produit, entrepôt, lot..."
-            toolbar={<ExportButtons filename="inventaire" title="Lignes d'inventaire" columns={exportColumns} fetchRows={inv.fetchAll} formats={['excel']} />}
+            searchPlaceholder="Rechercher par produit, entrepôt, lot, n° série..."
+            toolbar={
+              <div className="flex items-center gap-2 flex-wrap">
+                <FilterSelect
+                  value={inv.filters.entrepot_id}
+                  onChange={(v) => inv.setFilters({ ...inv.filters, entrepot_id: v })}
+                  options={entrepots.map(e => ({ value: e.id, label: e.nom }))}
+                  allLabel="Tous les entrepôts"
+                  title="Filtrer par entrepôt"
+                />
+                <ExportButtons filename="inventaire" title="Lignes d'inventaire" columns={exportColumns} fetchRows={inv.fetchAll} formats={['excel']} />
+              </div>
+            }
           />
         )}
       </div>
+
+      {/* Mode Audit : scan → recherche actif → mise à jour rapide (article par article) */}
+      {showAudit && (
+        <AuditScanner onClose={() => setShowAudit(false)} onUpdated={() => inv.refetch()} />
+      )}
+
+      {/* Session d'audit : scan continu → liste cumulative → rapport d'écarts */}
+      {showSession && (
+        <AuditSession onClose={() => setShowSession(false)} />
+      )}
     </div>
   );
 }

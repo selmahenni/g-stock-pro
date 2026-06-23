@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import DataTable from '../../components/DataTable';
+import DataTableServer from '../../components/DataTableServer';
+import FilterSelect from '../../components/FilterSelect';
+import usePaginatedResource from '../../hooks/usePaginatedResource';
 import { ActiveBadge, RoleBadge } from '../../components/StatusBadge';
 import usePermissions from '../../hooks/usePermissions';
 import { Users, UserCheck, ShieldAlert, Wrench, RefreshCw, AlertCircle, UserPlus, Pencil, Trash2, X, Eye, EyeOff, Power } from 'lucide-react';
@@ -24,10 +26,12 @@ import { Users, UserCheck, ShieldAlert, Wrench, RefreshCw, AlertCircle, UserPlus
  * @returns {React.JSX.Element} La structure complète de la page.
  */
 export default function PageUtilisateurs() {
-  const [utilisateurs, setUtilisateurs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  // Pagination + recherche + filtre rôle côté serveur
+  const list = usePaginatedResource('utilisateurs', 'utilisateurs', { pageSize: 10 });
+  const utilisateurs = list.rows;
+  const loading = list.isFetching;
+  const firstLoad = loading && !list.data; // spinner plein écran au tout premier chargement seulement
+  const error = list.isError ? (list.error?.message || 'Erreur de chargement.') : null;
   const { canAccess } = usePermissions();
 
   // Modals state
@@ -52,43 +56,6 @@ export default function PageUtilisateurs() {
     try { setCurrentUserId(Number(localStorage.getItem('userId'))); } catch { /* ignore */ }
   }, []);
 
-  useEffect(() => {
-    /**
-     * Récupère la liste des utilisateurs depuis l'API backend en envoyant le cookie de session (credentials).
-     */
-    async function fetchUtilisateurs() {
-      try {
-        setLoading(true);
-        setError(null);
-
-        // Fetch avec credentials pour transmettre les cookies HTTP-Only
-        const res = await fetch('http://localhost:5000/api/utilisateurs?limit=100', {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-          },
-          credentials: 'include',
-        });
-
-        if (!res.ok) {
-          if (res.status === 401 || res.status === 403) {
-            window.location.href = '/login';
-            return;
-          }
-          throw new Error(`Erreur serveur (${res.status}) lors de la récupération des données.`);
-        }
-
-        const data = await res.json();
-        setUtilisateurs(data.utilisateurs || []);
-      } catch (err) {
-        setError(err.message || 'Impossible de se connecter au serveur backend.');
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchUtilisateurs();
-  }, [refreshKey]);
 
   // ==========================================
   // Handlers CRUD
@@ -108,7 +75,7 @@ export default function PageUtilisateurs() {
       if (!res.ok) throw new Error(data.message || 'Erreur lors de la création');
       setShowCreateModal(false);
       setFormData({ nom: '', adresse_email: '', mot_de_passe: '', role: 'consultant' });
-      setRefreshKey(prev => prev + 1);
+      list.refetch();
     } catch (err) {
       setFormError(err.message);
     } finally {
@@ -135,7 +102,7 @@ export default function PageUtilisateurs() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Erreur lors de la mise à jour');
       setShowEditModal(false);
-      setRefreshKey(prev => prev + 1);
+      list.refetch();
     } catch (err) {
       setFormError(err.message);
     } finally {
@@ -154,7 +121,7 @@ export default function PageUtilisateurs() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Erreur lors de la suppression');
       setShowDeleteModal(false);
-      setRefreshKey(prev => prev + 1);
+      list.refetch();
     } catch (err) {
       setFormError(err.message);
     } finally {
@@ -172,7 +139,7 @@ export default function PageUtilisateurs() {
         credentials: 'include',
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
-      setRefreshKey(prev => prev + 1);
+      list.refetch();
     } catch (err) {
       alert(err.message);
     }
@@ -321,10 +288,12 @@ export default function PageUtilisateurs() {
   ];
 
   // Calcul des statistiques rapides
-  const totalUsers = utilisateurs.length;
-  const activeUsers = utilisateurs.filter((u) => u.est_actif).length;
-  const superAdmins = utilisateurs.filter((u) => u.role === 'super_admin').length;
-  const technicians = utilisateurs.filter((u) => u.role === 'technicien' || u.role === 'magasinier').length;
+  // Stats GLOBALES (renvoyées par le backend, indépendantes de la page/du filtre)
+  const stats = list.data?.stats || {};
+  const totalUsers = stats.total ?? 0;
+  const activeUsers = stats.actifs ?? 0;
+  const superAdmins = stats.super_admins ?? 0;
+  const technicians = stats.techniciens ?? 0;
 
   return (
     <div className="min-h-screen bg-base-200 p-4 sm:p-6 md:p-8">
@@ -344,7 +313,7 @@ export default function PageUtilisateurs() {
 
           <div className="flex gap-2">
             <button
-              onClick={() => setRefreshKey((prev) => prev + 1)}
+              onClick={() => list.refetch()}
               disabled={loading}
               className="btn btn-outline btn-primary btn-sm rounded-xl gap-2 transition-all hover:scale-105"
             >
@@ -377,7 +346,7 @@ export default function PageUtilisateurs() {
             </div>
             <div>
               <p className="text-xs text-base-content/50 font-semibold uppercase">Total Utilisateurs</p>
-              <h3 className="text-2xl font-bold mt-0.5">{loading ? '-' : totalUsers}</h3>
+              <h3 className="text-2xl font-bold mt-0.5">{firstLoad ? '-' : totalUsers}</h3>
             </div>
           </div>
 
@@ -387,7 +356,7 @@ export default function PageUtilisateurs() {
             </div>
             <div>
               <p className="text-xs text-base-content/50 font-semibold uppercase">Comptes Actifs</p>
-              <h3 className="text-2xl font-bold mt-0.5">{loading ? '-' : activeUsers}</h3>
+              <h3 className="text-2xl font-bold mt-0.5">{firstLoad ? '-' : activeUsers}</h3>
             </div>
           </div>
 
@@ -397,7 +366,7 @@ export default function PageUtilisateurs() {
             </div>
             <div>
               <p className="text-xs text-base-content/50 font-semibold uppercase">Super Admins</p>
-              <h3 className="text-2xl font-bold mt-0.5">{loading ? '-' : superAdmins}</h3>
+              <h3 className="text-2xl font-bold mt-0.5">{firstLoad ? '-' : superAdmins}</h3>
             </div>
           </div>
 
@@ -407,14 +376,14 @@ export default function PageUtilisateurs() {
             </div>
             <div>
               <p className="text-xs text-base-content/50 font-semibold uppercase">Opérateurs Terrain</p>
-              <h3 className="text-2xl font-bold mt-0.5">{loading ? '-' : technicians}</h3>
+              <h3 className="text-2xl font-bold mt-0.5">{firstLoad ? '-' : technicians}</h3>
             </div>
           </div>
         </div>
 
         {/* Zone Principale de données */}
         <div className="mt-8">
-          {loading ? (
+          {firstLoad ? (
             <div className="flex flex-col items-center justify-center py-20 gap-4 bg-base-100 rounded-2xl shadow-xl border border-base-200">
               <span className="loading loading-spinner loading-lg text-primary"></span>
               <p className="text-sm text-base-content/60 font-medium animate-pulse">Chargement des données utilisateurs...</p>
@@ -426,7 +395,7 @@ export default function PageUtilisateurs() {
                 <h3 className="font-bold text-error">Une erreur est survenue</h3>
                 <p className="text-sm text-base-content/70 mt-1">{error}</p>
                 <button
-                  onClick={() => setRefreshKey((prev) => prev + 1)}
+                  onClick={() => list.refetch()}
                   className="btn btn-sm btn-outline border-error/40 hover:bg-rose-500 hover:border-transparent text-error font-semibold rounded-lg mt-4 transition-all"
                 >
                   Réessayer
@@ -434,10 +403,31 @@ export default function PageUtilisateurs() {
               </div>
             </div>
           ) : (
-            <DataTable
+            <DataTableServer
               columns={columns}
               data={utilisateurs}
-              searchPlaceholder="Rechercher par nom, email..."
+              total={list.total}
+              pageCount={list.pageCount}
+              pagination={list.pagination}
+              onPaginationChange={list.setPagination}
+              search={list.search}
+              onSearchChange={list.onSearchChange}
+              loading={loading}
+              searchPlaceholder="Rechercher par nom, email, rôle..."
+              toolbar={
+                <FilterSelect
+                  value={list.filters.role}
+                  onChange={(v) => list.setFilters({ ...list.filters, role: v })}
+                  options={[
+                    { value: 'super_admin', label: 'Super-admin' },
+                    { value: 'magasinier', label: 'Magasinier' },
+                    { value: 'technicien', label: 'Technicien' },
+                    { value: 'consultant', label: 'Consultant' },
+                  ]}
+                  allLabel="Tous les rôles"
+                  title="Filtrer par rôle"
+                />
+              }
             />
           )}
         </div>

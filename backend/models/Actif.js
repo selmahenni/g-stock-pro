@@ -16,7 +16,7 @@ class Actif {
       FROM actifs a
       LEFT JOIN produits p ON a.produit_id = p.id
       LEFT JOIN entrepots e ON a.entrepot_id = e.id
-      ORDER BY a.cree_le DESC
+      ORDER BY a.cree_le DESC, a.id DESC
     `;
     const { rows } = await pool.query(query);
     return rows;
@@ -27,14 +27,24 @@ class Actif {
    * @param {Object} opts - { page, limit, search }
    * @returns {Promise<{rows: Array, total: number}>}
    */
-  static async findPaginated({ page = 1, limit = 10, search = '' } = {}) {
+  static async findPaginated({ page = 1, limit = 10, search = '', produitId = null, statut = null } = {}) {
     const offset = (page - 1) * limit;
     const params = [];
-    let where = '';
+    const clauses = [];
     if (search) {
       params.push(`%${search}%`);
-      where = `WHERE (a.numero_serie ILIKE $1 OR p.libelle ILIKE $1 OR a.statut ILIKE $1)`;
+      const i = params.length;
+      clauses.push(`(a.numero_serie ILIKE $${i} OR p.libelle ILIKE $${i} OR a.statut ILIKE $${i})`);
     }
+    if (produitId) {
+      params.push(produitId);
+      clauses.push(`a.produit_id = $${params.length}`);
+    }
+    if (statut) {
+      params.push(statut);
+      clauses.push(`a.statut = $${params.length}`);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
     const { rows: cnt } = await pool.query(
       `SELECT COUNT(*)::int AS total
@@ -49,7 +59,7 @@ class Actif {
        LEFT JOIN produits p  ON a.produit_id  = p.id
        LEFT JOIN entrepots e ON a.entrepot_id = e.id
        ${where}
-       ORDER BY a.cree_le DESC
+       ORDER BY a.cree_le DESC, a.id DESC
        LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
       dataParams
     );
@@ -88,13 +98,32 @@ class Actif {
    */
   static async findById(id) {
     const query = `
-      SELECT a.*, p.libelle AS produit_libelle, e.nom AS entrepot_nom
+      SELECT a.*, p.libelle AS produit_libelle, p.est_maintenable, e.nom AS entrepot_nom
       FROM actifs a
       LEFT JOIN produits p   ON a.produit_id  = p.id
       LEFT JOIN entrepots e  ON a.entrepot_id = e.id
       WHERE a.id = $1
     `;
     const { rows } = await pool.query(query, [id]);
+    return rows[0];
+  }
+
+  /**
+   * Récupère un actif par son NUMÉRO DE SÉRIE exact (insensible à la casse), avec jointures.
+   * Utilisé par le scan (audit d'inventaire).
+   * @param {string} numero - Le numéro de série.
+   * @returns {Promise<Object|undefined>}
+   */
+  static async findBySerie(numero) {
+    const query = `
+      SELECT a.*, p.libelle AS produit_libelle, e.nom AS entrepot_nom
+      FROM actifs a
+      LEFT JOIN produits p   ON a.produit_id  = p.id
+      LEFT JOIN entrepots e  ON a.entrepot_id = e.id
+      WHERE LOWER(a.numero_serie) = LOWER($1)
+      LIMIT 1
+    `;
+    const { rows } = await pool.query(query, [numero]);
     return rows[0];
   }
 

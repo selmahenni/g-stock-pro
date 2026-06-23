@@ -1,5 +1,6 @@
 // controllers/fournisseurController.js
 const Fournisseur = require('../models/Fournisseur');
+const pool = require('../config/db');
 
 /**
  * @function getAllFournisseurs
@@ -11,26 +12,27 @@ exports.getAllFournisseurs = async (req, res) => {
   try {
     const page  = parseInt(req.query.page)  || 1;
     const limit = parseInt(req.query.limit) || 10;
+    const search = (req.query.search || '').trim();
 
-    const tousLesFournisseurs = await Fournisseur.findAll();
+    const { rows, total } = await Fournisseur.findPaginated({ page, limit, search });
+    const totalPages = Math.ceil(total / limit) || 1;
 
-    const totalItems = tousLesFournisseurs.length;
-    const totalPages = Math.ceil(totalItems / limit);
-    const startIndex = (page - 1) * limit;
-    const endIndex   = startIndex + limit;
-
-    const fournisseursPagines = tousLesFournisseurs.slice(startIndex, endIndex);
+    const { rows: s } = await pool.query(`
+      SELECT COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE adresse_email IS NOT NULL AND adresse_email <> '')::int AS avec_email
+      FROM fournisseurs`);
 
     res.status(200).json({
+      stats: s[0],
       metadata: {
-        total_items:       totalItems,
+        total_items:       total,
         total_pages:       totalPages,
         current_page:      page,
         per_page:          limit,
         has_next_page:     page < totalPages,
         has_previous_page: page > 1,
       },
-      fournisseurs: fournisseursPagines,
+      fournisseurs: rows,
     });
   } catch (error) {
     console.error('Erreur (getAllFournisseurs):', error);

@@ -14,8 +14,9 @@ exports.getAllProduits = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const search = (req.query.search || '').trim();
+    const categorieId = req.query.categorie_id ? parseInt(req.query.categorie_id) : null;
 
-    const { rows, total } = await Produit.findPaginated({ page, limit, search });
+    const { rows, total } = await Produit.findPaginated({ page, limit, search, categorieId });
     const totalPages = Math.ceil(total / limit) || 1;
 
     res.status(200).json({

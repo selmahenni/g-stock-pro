@@ -33,6 +33,38 @@ class Utilisateur {
   }
 
   /**
+   * Page d'utilisateurs (pagination + recherche + filtre rôle, côté serveur).
+   * @param {Object} opts - { page, limit, search, role }
+   * @returns {Promise<{rows: Array, total: number}>}
+   */
+  static async findPaginated({ page = 1, limit = 10, search = '', role = null } = {}) {
+    const offset = (page - 1) * limit;
+    const params = [];
+    const clauses = [];
+    if (search) {
+      params.push(`%${search}%`);
+      const i = params.length;
+      clauses.push(`(nom_complet ILIKE $${i} OR adresse_email ILIKE $${i} OR role ILIKE $${i})`);
+    }
+    if (role) {
+      params.push(role);
+      clauses.push(`role = $${params.length}`);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+
+    const { rows: cnt } = await pool.query(`SELECT COUNT(*)::int AS total FROM utilisateurs ${where}`, params);
+    const dp = [...params, limit, offset];
+    const { rows } = await pool.query(
+      `SELECT id, role, nom_complet, adresse_email, est_actif, cree_le
+       FROM utilisateurs ${where}
+       ORDER BY cree_le DESC, id DESC
+       LIMIT $${dp.length - 1} OFFSET $${dp.length}`,
+      dp
+    );
+    return { rows, total: cnt[0].total };
+  }
+
+  /**
    * Récupère un utilisateur par son ID.
    * @param {string|number} id 
    * @returns {Promise<Object>}

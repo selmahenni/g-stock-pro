@@ -4,7 +4,7 @@ import React from 'react';
 import {
   CheckCircle2, Monitor, Wrench, XCircle, Clock, CalendarClock, Ban,
   ShieldCheck, ShieldOff, AlertTriangle, ShieldAlert, PackageCheck, PackageX,
-  ArrowDownCircle, ArrowUpCircle,
+  ArrowDownCircle, ArrowUpCircle, ArrowRightLeft,
 } from 'lucide-react';
 
 /**
@@ -100,11 +100,11 @@ export function RoleBadge({ role, size = 'sm' }) {
   return <StatusBadge label={p.label} tone={p.tone} icon={null} size={size} />;
 }
 
-/** Badge de type de mouvement (Entrée / Sortie). */
+/** Badge de type de mouvement (Entrée / Sortie / Transfert). */
 export function MovementBadge({ type, size = 'sm' }) {
-  return type === 'sortie'
-    ? <StatusBadge label="Sortie" tone="error" icon={ArrowUpCircle} size={size} />
-    : <StatusBadge label="Entrée" tone="success" icon={ArrowDownCircle} size={size} />;
+  if (type === 'sortie') return <StatusBadge label="Sortie" tone="error" icon={ArrowUpCircle} size={size} />;
+  if (type === 'transfert') return <StatusBadge label="Transfert" tone="info" icon={ArrowRightLeft} size={size} />;
+  return <StatusBadge label="Entrée" tone="success" icon={ArrowDownCircle} size={size} />;
 }
 
 export { ShieldAlert };

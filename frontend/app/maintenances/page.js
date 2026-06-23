@@ -2,7 +2,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import DataTable from '../../components/DataTable';
+import DataTableServer from '../../components/DataTableServer';
+import FilterSelect from '../../components/FilterSelect';
+import usePaginatedResource from '../../hooks/usePaginatedResource';
 import ResourceModal from '../../components/ResourceModal';
 import StatusBadge from '../../components/StatusBadge';
 import usePermissions from '../../hooks/usePermissions';
@@ -19,16 +21,19 @@ import {
  * La création de tickets se fait sur la fiche actif (Déclarer une panne / Enregistrer un entretien).
  */
 export default function PageMaintenances() {
-  const [maintenances, setMaintenances] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  // Tickets : pagination + recherche + filtres (statut via onglets, type via sélecteur), serveur
+  const list = usePaginatedResource('maintenances', 'maintenances', { pageSize: 10 });
+  const maintenances = list.rows;
+  const loading = list.isFetching;
+  const firstLoad = loading && !list.data;
+  const error = list.isError ? (list.error?.message || 'Erreur de chargement.') : null;
+  const [refreshKey, setRefreshKey] = useState(0); // rafraîchit les référentiels (actifs/échéancier)
   const [actifs, setActifs] = useState([]);
   const [produits, setProduits] = useState([]);
   const { canAccess } = usePermissions();
 
-  // ── Onglet de filtrage par statut ───────────────────────────────────
-  const [activeTab, setActiveTab] = useState('tous');
+  // Onglet actif = dérivé du filtre statut serveur (onglets + sélecteur restent synchronisés)
+  const activeTab = list.filters.statut || 'tous';
 
   // ── Édition de ticket ───────────────────────────────────────────────
   const [editingTicket, setEditingTicket] = useState(null);
@@ -36,36 +41,30 @@ export default function PageMaintenances() {
   const [editFormLoading, setEditFormLoading] = useState(false);
   const [editFormError, setEditFormError] = useState(null);
 
-  useEffect(() => {
-    async function fetchMaintenances() {
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await fetch('http://localhost:5000/api/maintenances?limit=200', { credentials: 'include' });
-        if (!res.ok) {
-          if (res.status === 401 || res.status === 403) { window.location.href = '/login'; return; }
-          throw new Error(`Erreur serveur (${res.status})`);
-        }
-        const data = await res.json();
-        setMaintenances(data.maintenances || []);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchMaintenances();
-  }, [refreshKey]);
+  // ── Déclaration de panne (maintenance curative à la demande) ─────────
+  // NB : `technicien_id` est conservé (état + envoi backend) mais masqué de l'UI
+  //      pour un usage ultérieur (assignation depuis l'édition du ticket).
+  const [techniciens, setTechniciens] = useState([]);
+  const [showPanne, setShowPanne] = useState(false);
+  const [panneData, setPanneData] = useState({ produit_id: '', actif_id: '', technicien_id: '', rapport: '' });
+  const [panneLoading, setPanneLoading] = useState(false);
+  const [panneError, setPanneError] = useState(null);
+  const canDeclarer = canAccess('actifs', 'update'); // super_admin, magasinier, technicien
 
   useEffect(() => {
     async function fetchOptions() {
       try {
-        const [actifsRes, produitsRes] = await Promise.all([
+        const [actifsRes, produitsRes, annuaireRes] = await Promise.all([
           fetch('http://localhost:5000/api/actifs?limit=500', { credentials: 'include' }),
           fetch('http://localhost:5000/api/produits?limit=500', { credentials: 'include' }),
+          fetch('http://localhost:5000/api/messages/annuaire', { credentials: 'include' }),
         ]);
         if (actifsRes.ok) { const data = await actifsRes.json(); setActifs(data.actifs || []); }
         if (produitsRes.ok) { const data = await produitsRes.json(); setProduits(data.produits || []); }
+        if (annuaireRes.ok) {
+          const data = await annuaireRes.json();
+          setTechniciens((data.utilisateurs || []).filter(u => u.role === 'technicien'));
+        }
       } catch {}
     }
     fetchOptions();
@@ -79,8 +78,8 @@ export default function PageMaintenances() {
   }, []);
 
   /**
-   * Échéancier préventif : utilise en priorité `actif.date_prochaine_preventive`
-   * (maintenue par le backend), avec repli sur un calcul (dernière intervention + intervalle).
+   * Échéancier préventif : s'appuie sur `actif.date_prochaine_preventive` (maintenue par le
+   * backend), avec repli (création + intervalle). Indépendant de la liste paginée des tickets.
    */
   const echeancier = useMemo(() => {
     const UNITE_MS = { minute: 60000, heure: 3600000, jour: 86400000, mois: 2592000000, annee: 31536000000 };
@@ -93,17 +92,6 @@ export default function PageMaintenances() {
       return null;
     };
 
-    // Dernière intervention par actif (date_intervention la plus récente, repli cree_le)
-    const derniereParActif = new Map();
-    for (const m of maintenances) {
-      const d = m.date_intervention || m.cree_le;
-      if (!d) continue;
-      const t = new Date(d).getTime();
-      if (!derniereParActif.has(m.actif_id) || t > derniereParActif.get(m.actif_id)) {
-        derniereParActif.set(m.actif_id, t);
-      }
-    }
-
     return actifs
       .map(a => {
         const p = produitsById.get(a.produit_id);
@@ -111,7 +99,7 @@ export default function PageMaintenances() {
         const hasDate = !!a.date_prochaine_preventive;
         if (!hasDate && (!p?.est_maintenable || !dureeMs)) return null;
 
-        const baseMs = derniereParActif.get(a.id) ?? (a.cree_le ? new Date(a.cree_le).getTime() : null);
+        const baseMs = a.cree_le ? new Date(a.cree_le).getTime() : null;
         const prochaineMs = hasDate
           ? new Date(a.date_prochaine_preventive).getTime()
           : (baseMs != null && dureeMs ? baseMs + dureeMs : null);
@@ -121,14 +109,14 @@ export default function PageMaintenances() {
           actif_id: a.id,
           numero_serie: a.numero_serie,
           produit: p?.libelle || '—',
-          derniere: derniereParActif.get(a.id) ?? null,
+          derniere: null,
           prochaine: prochaineMs,
           msRestants: prochaineMs - maintenant,
         };
       })
       .filter(Boolean)
       .sort((x, y) => x.msRestants - y.msRestants);
-  }, [actifs, produits, maintenances, tick]);
+  }, [actifs, produits, tick]);
 
   const enRetard = echeancier.filter(e => e.msRestants < 0).length;
 
@@ -148,7 +136,7 @@ export default function PageMaintenances() {
     try {
       const res = await fetch(`http://localhost:5000/api/maintenances/${id}`, { method: 'DELETE', credentials: 'include' });
       if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
-      setRefreshKey(p => p + 1);
+      (list.refetch(), setRefreshKey(p => p + 1));
     } catch (err) { alert(err.message); }
   };
 
@@ -183,7 +171,7 @@ export default function PageMaintenances() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Erreur lors de la mise à jour');
       setEditingTicket(null);
-      setRefreshKey(p => p + 1);
+      (list.refetch(), setRefreshKey(p => p + 1));
     } catch (err) {
       setEditFormError(err.message);
     } finally {
@@ -191,17 +179,17 @@ export default function PageMaintenances() {
     }
   };
 
-  // Statistiques (nouveaux statuts de ticket)
-  const total = maintenances.length;
-  const enCours = maintenances.filter(m => m.statut === 'en_cours').length;
-  const terminees = maintenances.filter(m => m.statut === 'termine').length;
-  const planifiees = maintenances.filter(m => m.statut === 'planifie').length;
+  // Statistiques GLOBALES (renvoyées par le backend, indépendantes de la page/du filtre)
+  const stats = list.data?.stats || {};
+  const total = stats.total ?? 0;
+  const enCours = stats.en_cours ?? 0;
+  const terminees = stats.termine ?? 0;
+  const planifiees = stats.planifie ?? 0;
 
-  // ── Filtrage par onglet ─────────────────────────────────────────────
-  const filteredMaintenances = useMemo(() => {
-    if (activeTab === 'tous') return maintenances;
-    return maintenances.filter(m => m.statut === activeTab);
-  }, [maintenances, activeTab]);
+  // L'onglet (et le sélecteur de statut) pilotent le même filtre STATUT côté serveur
+  const selectTab = (key) => {
+    list.setFilters({ ...list.filters, statut: key === 'tous' ? '' : key });
+  };
 
   const tabs = [
     { key: 'tous',     label: 'Tous',      count: total,      icon: ClipboardList, cls: 'text-primary' },
@@ -275,14 +263,16 @@ export default function PageMaintenances() {
       header: 'Actions',
       cell: (info) => (
         <div className="flex items-center gap-1">
-          {/* Bouton PDF — toujours visible quel que soit le statut */}
-          <button
-            onClick={() => genererRapportMaintenance(info.row.original)}
-            className="btn btn-outline btn-xs rounded-lg border-primary/30 text-base-content/40 hover:text-primary hover:bg-base-200 gap-1"
-            title="Télécharger le rapport PDF"
-          >
-            <FileDown className="w-3.5 h-3.5" /> PDF
-          </button>
+          {/* Rapport PDF : disponible uniquement quand le ticket est TERMINÉ */}
+          {info.row.original.statut === 'termine' && (
+            <button
+              onClick={() => genererRapportMaintenance(info.row.original)}
+              className="btn btn-outline btn-xs rounded-lg border-primary/30 text-base-content/40 hover:text-primary hover:bg-base-200 gap-1"
+              title="Télécharger le rapport PDF"
+            >
+              <FileDown className="w-3.5 h-3.5" /> PDF
+            </button>
+          )}
           {canUpdate && (
             <button
               onClick={() => openEditModal(info.row.original)}
@@ -296,6 +286,73 @@ export default function PageMaintenances() {
         </div>
       ),
     },
+  ];
+
+  // ── Déclaration de panne : actifs éligibles + envoi ─────────────────
+  // Seuls les produits MAINTENABLES peuvent tomber en panne.
+  const produitsMaintenables = produits.filter(p => p.est_maintenable);
+  const idsMaintenables = new Set(produitsMaintenables.map(p => String(p.id)));
+  // On ne propose pas les actifs déjà en maintenance ni au rebut, on les restreint aux
+  // produits maintenables, et au produit choisi si un filtre est sélectionné.
+  const actifsPourPanne = actifs.filter(a =>
+    a.statut !== 'maintenance' && a.statut !== 'rebut' &&
+    idsMaintenables.has(String(a.produit_id)) &&
+    (!panneData.produit_id || String(a.produit_id) === String(panneData.produit_id))
+  );
+
+  // Réinitialise l'actif si le filtre produit change.
+  const handlePanneChange = (next) => {
+    if (next.produit_id !== panneData.produit_id) next = { ...next, actif_id: '' };
+    setPanneData(next);
+  };
+
+  const handleDeclarerPanne = async (e) => {
+    e.preventDefault();
+    setPanneError(null);
+    if (!panneData.actif_id) { setPanneError('Sélectionnez l\'actif concerné.'); return; }
+    if (!panneData.rapport || !panneData.rapport.trim()) { setPanneError('Décrivez la panne constatée.'); return; }
+    setPanneLoading(true);
+    try {
+      const res = await fetch(`http://localhost:5000/api/actifs/${panneData.actif_id}/panne`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          rapport: panneData.rapport.trim(),
+          technicien_id: panneData.technicien_id ? Number(panneData.technicien_id) : null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Erreur lors de la déclaration de la panne.');
+      setShowPanne(false);
+      setPanneData({ produit_id: '', actif_id: '', technicien_id: '', rapport: '' });
+      (list.refetch(), setRefreshKey(p => p + 1));
+    } catch (err) {
+      setPanneError(err.message);
+    } finally {
+      setPanneLoading(false);
+    }
+  };
+
+  const panneFields = [
+    {
+      name: 'produit_id', label: 'Produit (filtre)', type: 'select', placeholder: 'Tous les produits maintenables',
+      options: produitsMaintenables.map(p => ({ value: p.id, label: `${p.libelle}${p.sku ? ` - ${p.sku}` : ''}` })),
+    },
+    {
+      name: 'actif_id', label: 'Actif en panne', type: 'select', required: true,
+      placeholder: actifsPourPanne.length ? 'Sélectionner l\'équipement' : 'Aucun actif disponible',
+      options: actifsPourPanne.map(a => ({
+        value: a.id,
+        label: `${a.numero_serie}${a.produit_libelle ? ` — ${a.produit_libelle}` : ''}${a.entrepot_nom ? ` · ${a.entrepot_nom}` : ''}`,
+      })),
+    },
+    {
+      name: 'rapport', label: 'Description de la panne', type: 'textarea', required: true,
+      placeholder: 'Symptômes constatés, contexte, urgence…',
+    },
+    // Champ « technicien » volontairement retiré de l'UI (assignation ultérieure possible).
+    // `technicien_id` reste dans l'état et l'envoi backend ; la liste `techniciens` est chargée.
   ];
 
   // ── Champs de la modale d'édition ───────────────────────────────────
@@ -319,11 +376,18 @@ export default function PageMaintenances() {
             <h1 className="text-3xl font-bold tracking-tight text-base-content">
               Maintenance
             </h1>
-            <p className="text-sm text-base-content/60 mt-1">Tickets d'intervention (préventif / curatif) et échéancier. Les actions se font sur la fiche actif.</p>
+            <p className="text-sm text-base-content/60 mt-1">Tickets d'intervention (préventif / curatif) et échéancier préventif.</p>
           </div>
-          <button onClick={() => setRefreshKey(p => p + 1)} disabled={loading} className="btn btn-outline btn-primary btn-sm rounded-xl gap-2 hover:scale-105 transition-all">
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Actualiser
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => (list.refetch(), setRefreshKey(p => p + 1))} disabled={loading} className="btn btn-outline btn-primary btn-sm rounded-xl gap-2 hover:scale-105 transition-all">
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Actualiser
+            </button>
+            {canDeclarer && (
+              <button onClick={() => { setPanneError(null); setShowPanne(true); }} className="btn btn-error btn-sm rounded-xl gap-2 shadow-lg shadow-error/25 hover:scale-105 transition-all">
+                <AlertTriangle className="w-4 h-4" /> Déclarer une panne
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -407,7 +471,7 @@ export default function PageMaintenances() {
             return (
               <button
                 key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => selectTab(tab.key)}
                 className={`btn btn-sm rounded-xl gap-1.5 transition-all ${
                   isActive
                     ? 'btn-primary shadow-md'
@@ -425,7 +489,7 @@ export default function PageMaintenances() {
         </div>
 
         <div>
-          {loading ? (
+          {firstLoad ? (
             <div className="flex flex-col items-center justify-center py-20 gap-4 bg-base-100 rounded-2xl shadow-xl border border-base-200">
               <span className="loading loading-spinner loading-lg text-primary"></span>
               <p className="text-sm text-base-content/60 font-medium animate-pulse">Chargement des tickets...</p>
@@ -433,13 +497,66 @@ export default function PageMaintenances() {
           ) : error ? (
             <div className="rounded-2xl border border-error/25 bg-error/5 p-5 flex items-start gap-4">
               <AlertCircle className="w-6 h-6 text-error mt-0.5 shrink-0" /><div><h3 className="font-bold text-error">Erreur</h3><p className="text-sm text-base-content/70 mt-1">{error}</p>
-                <button onClick={() => setRefreshKey(p => p + 1)} className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Réessayer</button></div>
+                <button onClick={() => (list.refetch(), setRefreshKey(p => p + 1))} className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Réessayer</button></div>
             </div>
           ) : (
-            <DataTable columns={columns} data={filteredMaintenances} searchPlaceholder="Rechercher par n° série, technicien, type..." />
+            <DataTableServer
+              columns={columns}
+              data={maintenances}
+              total={list.total}
+              pageCount={list.pageCount}
+              pagination={list.pagination}
+              onPaginationChange={list.setPagination}
+              search={list.search}
+              onSearchChange={list.onSearchChange}
+              loading={loading}
+              searchPlaceholder="Rechercher par n° série, produit, technicien..."
+              toolbar={
+                <div className="flex items-center gap-2 flex-wrap">
+                  <FilterSelect
+                    value={list.filters.statut}
+                    onChange={(v) => list.setFilters({ ...list.filters, statut: v })}
+                    options={[
+                      { value: 'planifie', label: 'Planifié' },
+                      { value: 'en_cours', label: 'En cours' },
+                      { value: 'termine', label: 'Terminé' },
+                      { value: 'annule', label: 'Annulé' },
+                    ]}
+                    allLabel="Tous les statuts"
+                    title="Filtrer par statut de maintenance"
+                  />
+                  <FilterSelect
+                    value={list.filters.type}
+                    onChange={(v) => list.setFilters({ ...list.filters, type: v })}
+                    options={[
+                      { value: 'preventif', label: 'Préventif' },
+                      { value: 'curatif', label: 'Curatif' },
+                    ]}
+                    allLabel="Tous les types"
+                    title="Filtrer par type de maintenance"
+                  />
+                </div>
+              }
+            />
           )}
         </div>
       </div>
+
+      {/* ── Modale : Déclarer une panne (maintenance curative) ─────────── */}
+      {showPanne && (
+        <ResourceModal
+          title="Déclarer une panne"
+          icon={AlertTriangle}
+          fields={panneFields}
+          values={panneData}
+          error={panneError}
+          loading={panneLoading}
+          submitLabel="Déclarer la panne"
+          onChange={handlePanneChange}
+          onClose={() => setShowPanne(false)}
+          onSubmit={handleDeclarerPanne}
+        />
+      )}
 
       {/* ── Modale d'édition de ticket ─────────────────────────────────── */}
       {editingTicket && (

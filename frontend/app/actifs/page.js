@@ -2,16 +2,21 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import DataTableServer from '../../components/DataTableServer';
 import ExportButtons from '../../components/ExportButtons';
+import FilterSelect from '../../components/FilterSelect';
 import ResourceModal from '../../components/ResourceModal';
 import StatusBadge from '../../components/StatusBadge';
 import usePermissions from '../../hooks/usePermissions';
 import usePaginatedResource from '../../hooks/usePaginatedResource';
 import {
   Layers, RefreshCw, AlertCircle, Plus, Pencil, Trash2,
-  Monitor, CheckCircle2, XCircle, Clock, Eye, Wrench, Boxes
+  Monitor, CheckCircle2, XCircle, Clock, Eye, Wrench, Boxes, QrCode
 } from 'lucide-react';
+
+// Scanner caméra : chargé uniquement côté client (pas de SSR).
+const QrScanner = dynamic(() => import('../../components/QrScanner'), { ssr: false });
 
 /**
  * @component PageActifs
@@ -24,6 +29,7 @@ export default function PageActifs() {
   const [produits, setProduits] = useState([]);
   const [entrepots, setEntrepots] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState(null);
   const [formData, setFormData] = useState({
@@ -83,6 +89,18 @@ export default function PageActifs() {
       if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
       list.refetch();
     } catch (err) { alert(err.message); }
+  };
+
+  // ── Scan QR / code-barres ───────────────────────────────────────────
+  // Le code lu (n° de série) pré-remplit le formulaire d'ajout en mode unitaire.
+  // L'enregistrement crée l'actif → incrémente le stock → la ligne d'inventaire apparaît/maj.
+  const handleScanResult = (text) => {
+    setShowScanner(false);
+    setBatchMode(false);
+    setBatchResult(null);
+    setFormError(null);
+    setFormData((prev) => ({ ...prev, numero_serie: text }));
+    setShowCreateModal(true);
   };
 
   // ── Création (unitaire) ─────────────────────────────────────────────
@@ -352,6 +370,11 @@ export default function PageActifs() {
               <RefreshCw className={`w-4 h-4 ${list.isFetching ? 'animate-spin' : ''}`} /> Actualiser
             </button>
             {canCreate && (
+              <button onClick={() => setShowScanner(true)} className="btn btn-outline btn-primary btn-sm rounded-xl gap-2 hover:scale-105 transition-all" title="Scanner un QR / code‑barres">
+                <QrCode className="w-4 h-4" /> Scanner
+              </button>
+            )}
+            {canCreate && (
               <button onClick={() => { setFormError(null); setBatchResult(null); setShowCreateModal(true); }} className="btn btn-primary btn-sm rounded-xl gap-2 shadow-lg shadow-primary/25 hover:scale-105 transition-all">
                 <Plus className="w-4 h-4" /> Ajouter des actifs
               </button>
@@ -379,10 +402,42 @@ export default function PageActifs() {
             onSearchChange={list.onSearchChange}
             loading={list.isFetching}
             searchPlaceholder="Rechercher par n° série, produit, statut..."
-            toolbar={<ExportButtons filename="actifs" title="Parc d'Actifs" columns={exportColumns} fetchRows={list.fetchAll} formats={['excel']} />}
+            toolbar={
+              <div className="flex items-center gap-2 flex-wrap">
+                <FilterSelect
+                  value={list.filters.statut}
+                  onChange={(v) => list.setFilters({ ...list.filters, statut: v })}
+                  options={[
+                    { value: 'en_stock', label: 'En stock' },
+                    { value: 'affecte', label: 'Affecté' },
+                    { value: 'maintenance', label: 'Maintenance' },
+                    { value: 'rebut', label: 'Rebut' },
+                  ]}
+                  allLabel="Tous les statuts"
+                  title="Filtrer par statut"
+                />
+                <FilterSelect
+                  value={list.filters.produit_id}
+                  onChange={(v) => list.setFilters({ ...list.filters, produit_id: v })}
+                  options={produits.map(p => ({ value: p.id, label: `${p.libelle}${p.sku ? ` (${p.sku})` : ''}` }))}
+                  allLabel="Tous les produits"
+                  title="Filtrer par produit"
+                />
+                <ExportButtons filename="actifs" title="Parc d'Actifs" columns={exportColumns} fetchRows={list.fetchAll} formats={['excel']} />
+              </div>
+            }
           />
         )}
       </div>
+
+      {/* ── Scanner QR / code-barres ───────────────────────────────────── */}
+      {showScanner && (
+        <QrScanner
+          title="Scanner un actif"
+          onResult={handleScanResult}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
 
       {/* ── Modale de création (unitaire ou batch) ──────────────────────── */}
       {showCreateModal && !batchMode && (

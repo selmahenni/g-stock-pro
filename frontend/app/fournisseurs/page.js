@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import DataTable from '../../components/DataTable';
+import React, { useState } from 'react';
+import DataTableServer from '../../components/DataTableServer';
+import usePaginatedResource from '../../hooks/usePaginatedResource';
 import ResourceModal from '../../components/ResourceModal';
 import usePermissions from '../../hooks/usePermissions';
 import { Building2, RefreshCw, AlertCircle, Plus, Pencil, Trash2, Mail, Phone } from 'lucide-react';
@@ -11,38 +12,23 @@ import { Building2, RefreshCw, AlertCircle, Plus, Pencil, Trash2, Mail, Phone } 
  * @description Page de gestion des fournisseurs avec RBAC.
  */
 export default function PageFournisseurs() {
-  const [fournisseurs, setFournisseurs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const list = usePaginatedResource('fournisseurs', 'fournisseurs', { pageSize: 10 });
+  const fournisseurs = list.rows;
+  const loading = list.isFetching;
+  const firstLoad = loading && !list.data;
+  const error = list.isError ? (list.error?.message || 'Erreur de chargement.') : null;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState(null);
   const [formData, setFormData] = useState({ nom: '', adresse_email: '', telephone: '' });
-  const { canAccess } = usePermissions();
 
-  useEffect(() => {
-    async function fetchFournisseurs() {
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await fetch('http://localhost:5000/api/fournisseurs?limit=200', {
-          credentials: 'include',
-        });
-        if (!res.ok) {
-          if (res.status === 401 || res.status === 403) { window.location.href = '/login'; return; }
-          throw new Error(`Erreur serveur (${res.status})`);
-        }
-        const data = await res.json();
-        setFournisseurs(data.fournisseurs || []);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchFournisseurs();
-  }, [refreshKey]);
+  // ── Édition ─────────────────────────────────────────────────────────
+  const [editing, setEditing] = useState(null);
+  const [editData, setEditData] = useState({ nom: '', adresse_email: '', telephone: '' });
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState(null);
+
+  const { canAccess } = usePermissions();
 
   const canCreate = canAccess('fournisseurs', 'create');
   const canUpdate = canAccess('fournisseurs', 'update');
@@ -55,8 +41,40 @@ export default function PageFournisseurs() {
         method: 'DELETE', credentials: 'include',
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
-      setRefreshKey(p => p + 1);
+      list.refetch();
     } catch (err) { alert(err.message); }
+  };
+
+  const openEdit = (f) => {
+    setEditError(null);
+    setEditData({ nom: f.nom || '', adresse_email: f.adresse_email || '', telephone: f.telephone || '' });
+    setEditing(f);
+  };
+
+  const handleEdit = async (e) => {
+    e.preventDefault();
+    setEditLoading(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`http://localhost:5000/api/fournisseurs/${editing.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          nom: editData.nom,
+          adresse_email: editData.adresse_email || null,
+          telephone: editData.telephone || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Erreur lors de la mise à jour du fournisseur');
+      setEditing(null);
+      list.refetch();
+    } catch (err) {
+      setEditError(err.message);
+    } finally {
+      setEditLoading(false);
+    }
   };
 
   const handleCreate = async (e) => {
@@ -78,7 +96,7 @@ export default function PageFournisseurs() {
       if (!res.ok) throw new Error(data.message || 'Erreur lors de la création du fournisseur');
       setShowCreateModal(false);
       setFormData({ nom: '', adresse_email: '', telephone: '' });
-      setRefreshKey(p => p + 1);
+      list.refetch();
     } catch (err) {
       setFormError(err.message);
     } finally {
@@ -137,7 +155,7 @@ export default function PageFournisseurs() {
       header: 'Actions',
       cell: (info) => (
         <div className="flex items-center gap-1">
-          {canUpdate && <button className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-primary hover:bg-base-200"><Pencil className="w-3.5 h-3.5" /></button>}
+          {canUpdate && <button onClick={() => openEdit(info.row.original)} className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-primary hover:bg-base-200" title="Modifier"><Pencil className="w-3.5 h-3.5" /></button>}
           {canDelete && <button onClick={() => handleDelete(info.row.original.id)} className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-error hover:bg-base-200"><Trash2 className="w-3.5 h-3.5" /></button>}
         </div>
       ),
@@ -155,7 +173,7 @@ export default function PageFournisseurs() {
             <p className="text-sm text-base-content/60 mt-1">Annuaire des fournisseurs et partenaires commerciaux.</p>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setRefreshKey(p => p + 1)} disabled={loading} className="btn btn-outline btn-primary btn-sm rounded-xl gap-2 hover:scale-105 transition-all">
+            <button onClick={() => list.refetch()} disabled={loading} className="btn btn-outline btn-primary btn-sm rounded-xl gap-2 hover:scale-105 transition-all">
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Actualiser
             </button>
             {canCreate && (
@@ -169,16 +187,16 @@ export default function PageFournisseurs() {
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-base-100 p-4 rounded-2xl border border-base-200 shadow-md flex items-center gap-4 hover:shadow-lg transition-all">
             <div className="p-3 bg-primary/10 rounded-xl text-primary"><Building2 className="w-6 h-6" /></div>
-            <div><p className="text-xs text-base-content/50 font-semibold uppercase">Total Fournisseurs</p><h3 className="text-2xl font-bold mt-0.5">{loading ? '—' : fournisseurs.length}</h3></div>
+            <div><p className="text-xs text-base-content/50 font-semibold uppercase">Total Fournisseurs</p><h3 className="text-2xl font-bold mt-0.5">{firstLoad ? '—' : (list.data?.stats?.total ?? 0)}</h3></div>
           </div>
           <div className="bg-base-100 p-4 rounded-2xl border border-base-200 shadow-md flex items-center gap-4 hover:shadow-lg transition-all">
             <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-500"><Mail className="w-6 h-6" /></div>
-            <div><p className="text-xs text-base-content/50 font-semibold uppercase">Avec Email</p><h3 className="text-2xl font-bold mt-0.5">{loading ? '—' : fournisseurs.filter(f => f.adresse_email).length}</h3></div>
+            <div><p className="text-xs text-base-content/50 font-semibold uppercase">Avec Email</p><h3 className="text-2xl font-bold mt-0.5">{firstLoad ? '—' : (list.data?.stats?.avec_email ?? 0)}</h3></div>
           </div>
         </div>
 
         <div className="mt-8">
-          {loading ? (
+          {firstLoad ? (
             <div className="flex flex-col items-center justify-center py-20 gap-4 bg-base-100 rounded-2xl shadow-xl border border-base-200">
               <span className="loading loading-spinner loading-lg text-primary"></span>
               <p className="text-sm text-base-content/60 font-medium animate-pulse">Chargement des fournisseurs...</p>
@@ -186,10 +204,21 @@ export default function PageFournisseurs() {
           ) : error ? (
             <div className="rounded-2xl border border-error/25 bg-error/5 p-5 flex items-start gap-4">
               <AlertCircle className="w-6 h-6 text-error mt-0.5 shrink-0" /><div><h3 className="font-bold text-error">Erreur</h3><p className="text-sm text-base-content/70 mt-1">{error}</p>
-                <button onClick={() => setRefreshKey(p => p + 1)} className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Réessayer</button></div>
+                <button onClick={() => list.refetch()} className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Réessayer</button></div>
             </div>
           ) : (
-            <DataTable columns={columns} data={fournisseurs} searchPlaceholder="Rechercher par nom, email, téléphone..." />
+            <DataTableServer
+              columns={columns}
+              data={fournisseurs}
+              total={list.total}
+              pageCount={list.pageCount}
+              pagination={list.pagination}
+              onPaginationChange={list.setPagination}
+              search={list.search}
+              onSearchChange={list.onSearchChange}
+              loading={loading}
+              searchPlaceholder="Rechercher par nom, email, téléphone..."
+            />
           )}
         </div>
       </div>
@@ -209,6 +238,26 @@ export default function PageFournisseurs() {
           onChange={setFormData}
           onClose={() => setShowCreateModal(false)}
           onSubmit={handleCreate}
+        />
+      )}
+
+      {/* ── Modale d'édition ─────────────────────────────────────────── */}
+      {editing && (
+        <ResourceModal
+          title={`Modifier « ${editing.nom} »`}
+          icon={Pencil}
+          fields={[
+            { name: 'nom', label: 'Nom', required: true, placeholder: 'Fournisseur SARL' },
+            { name: 'adresse_email', label: 'Email', type: 'email', placeholder: 'contact@fournisseur.dz' },
+            { name: 'telephone', label: 'Téléphone', placeholder: '+213...' },
+          ]}
+          values={editData}
+          error={editError}
+          loading={editLoading}
+          submitLabel="Enregistrer"
+          onChange={setEditData}
+          onClose={() => setEditing(null)}
+          onSubmit={handleEdit}
         />
       )}
     </div>

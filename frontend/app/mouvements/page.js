@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import DataTable from '../../components/DataTable';
+import DataTableServer from '../../components/DataTableServer';
+import FilterSelect from '../../components/FilterSelect';
+import usePaginatedResource from '../../hooks/usePaginatedResource';
 import ResourceModal from '../../components/ResourceModal';
 import { MovementBadge } from '../../components/StatusBadge';
 import usePermissions from '../../hooks/usePermissions';
@@ -16,12 +18,14 @@ import {
  * @description Page d'historique des mouvements d'entrée/sortie avec RBAC.
  */
 export default function PageMouvements() {
-  const [mouvements, setMouvements] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const list = usePaginatedResource('mouvements', 'mouvements', { pageSize: 10 });
+  const mouvements = list.rows;
+  const loading = list.isFetching;
+  const firstLoad = loading && !list.data;
+  const error = list.isError ? (list.error?.message || 'Erreur de chargement.') : null;
   const [actifs, setActifs] = useState([]);
   const [produits, setProduits] = useState([]);
+  const [entrepots, setEntrepots] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState(null);
@@ -30,39 +34,19 @@ export default function PageMouvements() {
     actif_id: '',
     type_mouvement: 'entree',
     destinataire: '',
+    entrepot_destination_id: '', // utilisé uniquement pour un transfert
     notes: '',
   });
   const { canAccess } = usePermissions();
 
-  useEffect(() => {
-    async function fetchMouvements() {
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await fetch('http://localhost:5000/api/mouvements?limit=200', {
-          credentials: 'include',
-        });
-        if (!res.ok) {
-          if (res.status === 401 || res.status === 403) { window.location.href = '/login'; return; }
-          throw new Error(`Erreur serveur (${res.status})`);
-        }
-        const data = await res.json();
-        setMouvements(data.mouvements || []);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchMouvements();
-  }, [refreshKey]);
 
   useEffect(() => {
     async function fetchOptions() {
       try {
-        const [actifsRes, produitsRes] = await Promise.all([
+        const [actifsRes, produitsRes, entrepotsRes] = await Promise.all([
           fetch('http://localhost:5000/api/actifs?limit=500', { credentials: 'include' }),
           fetch('http://localhost:5000/api/produits?limit=500', { credentials: 'include' }),
+          fetch('http://localhost:5000/api/entrepots', { credentials: 'include' }),
         ]);
         if (actifsRes.ok) {
           const data = await actifsRes.json();
@@ -71,6 +55,10 @@ export default function PageMouvements() {
         if (produitsRes.ok) {
           const data = await produitsRes.json();
           setProduits(data.produits || []);
+        }
+        if (entrepotsRes.ok) {
+          const data = await entrepotsRes.json();
+          setEntrepots(Array.isArray(data) ? data : (data.entrepots || []));
         }
       } catch {}
     }
@@ -92,11 +80,14 @@ export default function PageMouvements() {
     if (formData.produit_id && String(a.produit_id) !== String(formData.produit_id)) return false;
     if (formData.type_mouvement === 'sortie') return a.statut === 'en_stock';
     if (formData.type_mouvement === 'entree') return a.statut !== 'en_stock';
+    if (formData.type_mouvement === 'transfert') return a.statut === 'en_stock' && a.entrepot_id; // doit avoir un entrepôt source
     return true;
   });
 
+  // Actif sélectionné (pour exclure son entrepôt actuel des destinations possibles)
+  const actifSelectionne = actifs.find((a) => String(a.id) === String(formData.actif_id));
+
   const canCreate = canAccess('mouvements', 'create');
-  const canUpdate = canAccess('mouvements', 'update');
   const canDelete = canAccess('mouvements', 'delete');
 
   const handleDelete = async (id) => {
@@ -106,7 +97,7 @@ export default function PageMouvements() {
         method: 'DELETE', credentials: 'include',
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
-      setRefreshKey(p => p + 1);
+      list.refetch();
     } catch (err) { alert(err.message); }
   };
 
@@ -125,13 +116,17 @@ export default function PageMouvements() {
           type_mouvement: formData.type_mouvement,
           destinataire: formData.destinataire || null,
           notes: formData.notes || null,
+          // Uniquement pour un transfert : entrepôt de destination
+          entrepot_destination_id: formData.type_mouvement === 'transfert'
+            ? Number(formData.entrepot_destination_id) || null
+            : null,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Erreur lors de la création du mouvement');
       setShowCreateModal(false);
-      setFormData({ produit_id: '', actif_id: '', type_mouvement: 'entree', destinataire: '', notes: '' });
-      setRefreshKey(p => p + 1);
+      setFormData({ produit_id: '', actif_id: '', type_mouvement: 'entree', destinataire: '', entrepot_destination_id: '', notes: '' });
+      list.refetch();
     } catch (err) {
       setFormError(err.message);
     } finally {
@@ -139,9 +134,10 @@ export default function PageMouvements() {
     }
   };
 
-  const total = mouvements.length;
-  const entrees = mouvements.filter(m => m.type_mouvement === 'entree').length;
-  const sorties = mouvements.filter(m => m.type_mouvement === 'sortie').length;
+  const stats = list.data?.stats || {};
+  const total = stats.total ?? 0;
+  const entrees = stats.entrees ?? 0;
+  const sorties = stats.sorties ?? 0;
 
   const columns = [
     {
@@ -153,7 +149,19 @@ export default function PageMouvements() {
     {
       accessorKey: 'type_mouvement',
       header: 'Type',
-      cell: (info) => <MovementBadge type={info.getValue()} />,
+      cell: (info) => {
+        const m = info.row.original;
+        return (
+          <div className="flex flex-col gap-1 items-start">
+            <MovementBadge type={info.getValue()} />
+            {info.getValue() === 'transfert' && (
+              <span className="text-[11px] text-base-content/50 whitespace-nowrap">
+                {m.entrepot_nom || '?'} → {m.entrepot_destination_nom || '?'}
+              </span>
+            )}
+          </div>
+        );
+      },
     },
     {
       accessorKey: 'numero_serie',
@@ -200,14 +208,16 @@ export default function PageMouvements() {
         const estSortie = m.type_mouvement === 'sortie';
         return (
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => genererBonDeSortie(m)}
-              className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-error hover:bg-base-200 gap-1"
-              title={estSortie ? 'Générer le bon de sortie (PDF)' : "Générer le bon d'entrée (PDF)"}
-            >
-              <FileDown className="w-3.5 h-3.5" /> {estSortie ? 'Bon de sortie' : "Bon d'entrée"}
-            </button>
-            {canUpdate && <button className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-primary hover:bg-base-200"><Pencil className="w-3.5 h-3.5" /></button>}
+            {/* Bon de sortie PDF : réservé aux sorties (masqué pour entrée et transfert) */}
+            {estSortie && (
+              <button
+                onClick={() => genererBonDeSortie(m)}
+                className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-error hover:bg-base-200 gap-1"
+                title="Générer le bon de sortie (PDF)"
+              >
+                <FileDown className="w-3.5 h-3.5" /> Bon de sortie
+              </button>
+            )}
             {canDelete && <button onClick={() => handleDelete(m.id)} className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-error hover:bg-base-200"><Trash2 className="w-3.5 h-3.5" /></button>}
           </div>
         );
@@ -226,7 +236,7 @@ export default function PageMouvements() {
             <p className="text-sm text-base-content/60 mt-1">Traçabilité complète des entrées et sorties de stock.</p>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setRefreshKey(p => p + 1)} disabled={loading} className="btn btn-outline btn-primary btn-sm rounded-xl gap-2 hover:scale-105 transition-all">
+            <button onClick={() => list.refetch()} disabled={loading} className="btn btn-outline btn-primary btn-sm rounded-xl gap-2 hover:scale-105 transition-all">
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Actualiser
             </button>
             {canCreate && (
@@ -240,20 +250,20 @@ export default function PageMouvements() {
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
           <div className="bg-base-100 p-4 rounded-2xl border border-base-200 shadow-md flex items-center gap-4 hover:shadow-lg transition-all">
             <div className="p-3 bg-primary/10 rounded-xl text-primary"><FileText className="w-6 h-6" /></div>
-            <div><p className="text-xs text-base-content/50 font-semibold uppercase">Total Mouvements</p><h3 className="text-2xl font-bold mt-0.5">{loading ? '—' : total}</h3></div>
+            <div><p className="text-xs text-base-content/50 font-semibold uppercase">Total Mouvements</p><h3 className="text-2xl font-bold mt-0.5">{firstLoad ? '—' : total}</h3></div>
           </div>
           <div className="bg-base-100 p-4 rounded-2xl border border-base-200 shadow-md flex items-center gap-4 hover:shadow-lg transition-all">
             <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-500"><ArrowDownCircle className="w-6 h-6" /></div>
-            <div><p className="text-xs text-base-content/50 font-semibold uppercase">Entrées</p><h3 className="text-2xl font-bold mt-0.5">{loading ? '—' : entrees}</h3></div>
+            <div><p className="text-xs text-base-content/50 font-semibold uppercase">Entrées</p><h3 className="text-2xl font-bold mt-0.5">{firstLoad ? '—' : entrees}</h3></div>
           </div>
           <div className="bg-base-100 p-4 rounded-2xl border border-base-200 shadow-md flex items-center gap-4 hover:shadow-lg transition-all">
             <div className="p-3 bg-rose-500/10 rounded-xl text-rose-500"><ArrowUpCircle className="w-6 h-6" /></div>
-            <div><p className="text-xs text-base-content/50 font-semibold uppercase">Sorties</p><h3 className="text-2xl font-bold mt-0.5">{loading ? '—' : sorties}</h3></div>
+            <div><p className="text-xs text-base-content/50 font-semibold uppercase">Sorties</p><h3 className="text-2xl font-bold mt-0.5">{firstLoad ? '—' : sorties}</h3></div>
           </div>
         </div>
 
         <div className="mt-8">
-          {loading ? (
+          {firstLoad ? (
             <div className="flex flex-col items-center justify-center py-20 gap-4 bg-base-100 rounded-2xl shadow-xl border border-base-200">
               <span className="loading loading-spinner loading-lg text-primary"></span>
               <p className="text-sm text-base-content/60 font-medium animate-pulse">Chargement de l'historique...</p>
@@ -262,11 +272,35 @@ export default function PageMouvements() {
             <div className="rounded-2xl border border-error/25 bg-error/5 p-5 flex items-start gap-4">
               <AlertCircle className="w-6 h-6 text-error mt-0.5 shrink-0" />
               <div><h3 className="font-bold text-error">Erreur</h3><p className="text-sm text-base-content/70 mt-1">{error}</p>
-                <button onClick={() => setRefreshKey(p => p + 1)} className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Réessayer</button>
+                <button onClick={() => list.refetch()} className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Réessayer</button>
               </div>
             </div>
           ) : (
-            <DataTable columns={columns} data={mouvements} searchPlaceholder="Rechercher par n° série, auteur..." />
+            <DataTableServer
+              columns={columns}
+              data={mouvements}
+              total={list.total}
+              pageCount={list.pageCount}
+              pagination={list.pagination}
+              onPaginationChange={list.setPagination}
+              search={list.search}
+              onSearchChange={list.onSearchChange}
+              loading={loading}
+              searchPlaceholder="Rechercher par n° série, produit, auteur..."
+              toolbar={
+                <FilterSelect
+                  value={list.filters.type}
+                  onChange={(v) => list.setFilters({ ...list.filters, type: v })}
+                  options={[
+                    { value: 'entree', label: 'Entrée' },
+                    { value: 'sortie', label: 'Sortie' },
+                    { value: 'transfert', label: 'Transfert' },
+                  ]}
+                  allLabel="Tous les types"
+                  title="Filtrer par type de mouvement"
+                />
+              }
+            />
           )}
         </div>
       </div>
@@ -278,24 +312,31 @@ export default function PageMouvements() {
             { name: 'type_mouvement', label: 'Type de mouvement', type: 'select', options: [
               { value: 'entree', label: 'Entrée (retour en stock)' },
               { value: 'sortie', label: 'Sortie (du stock)' },
+              { value: 'transfert', label: 'Transfert (d\'un entrepôt à un autre)' },
             ] },
             {
               name: 'produit_id', label: 'Produit (filtre)', type: 'select', placeholder: 'Tous les produits',
               options: produits.map(p => ({ value: p.id, label: `${p.libelle}${p.sku ? ` - ${p.sku}` : ''}` })),
             },
             {
-              name: 'actif_id', label: 'Actif disponible', type: 'select', required: true,
+              name: 'actif_id', label: formData.type_mouvement === 'transfert' ? 'Actif à transférer' : 'Actif disponible', type: 'select', required: true,
               placeholder: actifsDisponibles.length ? 'Sélectionner un actif' : 'Aucun actif disponible',
               options: actifsDisponibles.map(a => ({
                 value: a.id,
                 label: `${a.numero_serie}${a.produit_libelle ? ` - ${a.produit_libelle}` : ''}${a.entrepot_nom ? ` · ${a.entrepot_nom}` : ''}`,
               })),
             },
-            {
+            ...(formData.type_mouvement === 'transfert' ? [{
+              name: 'entrepot_destination_id', label: 'Entrepôt de destination', type: 'select', required: true,
+              placeholder: actifSelectionne ? 'Sélectionner la destination' : 'Choisissez d\'abord un actif',
+              options: entrepots
+                .filter(e => !actifSelectionne || String(e.id) !== String(actifSelectionne.entrepot_id))
+                .map(e => ({ value: e.id, label: e.nom })),
+            }] : [{
               name: 'destinataire',
               label: formData.type_mouvement === 'sortie' ? 'Destinataire / Bénéficiaire' : 'Destinataire (optionnel)',
               placeholder: formData.type_mouvement === 'sortie' ? 'Nom du service, de la personne ou du chantier…' : 'Optionnel',
-            },
+            }]),
             { name: 'notes', label: 'Notes', type: 'textarea', placeholder: 'Motif, référence ou observation' },
           ]}
           values={formData}

@@ -10,6 +10,19 @@ class Fournisseur {
     return rows;
   }
 
+  /** Page de fournisseurs (pagination + recherche serveur). */
+  static async findPaginated({ page = 1, limit = 10, search = '' } = {}) {
+    const offset = (page - 1) * limit;
+    const params = [];
+    let where = '';
+    if (search) { params.push(`%${search}%`); where = 'WHERE (nom ILIKE $1 OR adresse_email ILIKE $1 OR telephone ILIKE $1)'; }
+    const { rows: cnt } = await pool.query(`SELECT COUNT(*)::int AS total FROM fournisseurs ${where}`, params);
+    const dp = [...params, limit, offset];
+    const { rows } = await pool.query(
+      `SELECT * FROM fournisseurs ${where} ORDER BY nom ASC, id ASC LIMIT $${dp.length - 1} OFFSET $${dp.length}`, dp);
+    return { rows, total: cnt[0].total };
+  }
+
   static async findById(id) {
     const { rows } = await pool.query('SELECT * FROM fournisseurs WHERE id = $1', [id]);
     return rows[0];

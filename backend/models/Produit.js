@@ -21,14 +21,20 @@ class Produit {
    * @param {Object} opts - { page, limit, search }
    * @returns {Promise<{rows: Array, total: number}>} La page et le total filtré.
    */
-  static async findPaginated({ page = 1, limit = 10, search = '' } = {}) {
+  static async findPaginated({ page = 1, limit = 10, search = '', categorieId = null } = {}) {
     const offset = (page - 1) * limit;
     const params = [];
-    let where = '';
+    const clauses = [];
     if (search) {
       params.push(`%${search}%`);
-      where = `WHERE (p.libelle ILIKE $1 OR p.sku ILIKE $1)`;
+      const i = params.length;
+      clauses.push(`(p.libelle ILIKE $${i} OR p.sku ILIKE $${i})`);
     }
+    if (categorieId) {
+      params.push(categorieId);
+      clauses.push(`p.categorie_id = $${params.length}`);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
     const { rows: cnt } = await pool.query(`SELECT COUNT(*)::int AS total FROM produits p ${where}`, params);
 
@@ -39,7 +45,7 @@ class Produit {
        LEFT JOIN categories c   ON p.categorie_id   = c.id
        LEFT JOIN fournisseurs f ON p.fournisseur_id = f.id
        ${where}
-       ORDER BY p.cree_le DESC
+       ORDER BY p.cree_le DESC, p.id DESC
        LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
       dataParams
     );

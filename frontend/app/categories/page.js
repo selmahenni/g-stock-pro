@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import DataTable from '../../components/DataTable';
+import React, { useState } from 'react';
+import DataTableServer from '../../components/DataTableServer';
+import usePaginatedResource from '../../hooks/usePaginatedResource';
 import ResourceModal from '../../components/ResourceModal';
 import usePermissions from '../../hooks/usePermissions';
 import { Tag, RefreshCw, AlertCircle, Plus, Pencil, Trash2, FileText } from 'lucide-react';
@@ -11,38 +12,23 @@ import { Tag, RefreshCw, AlertCircle, Plus, Pencil, Trash2, FileText } from 'luc
  * @description Page de gestion des catégories de produits avec RBAC.
  */
 export default function PageCategories() {
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const list = usePaginatedResource('categories', 'categories', { pageSize: 10 });
+  const categories = list.rows;
+  const loading = list.isFetching;
+  const firstLoad = loading && !list.data;
+  const error = list.isError ? (list.error?.message || 'Erreur de chargement.') : null;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState(null);
   const [formData, setFormData] = useState({ nom: '', description: '' });
-  const { canAccess } = usePermissions();
 
-  useEffect(() => {
-    async function fetchCategories() {
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await fetch('http://localhost:5000/api/categories?limit=200', {
-          credentials: 'include',
-        });
-        if (!res.ok) {
-          if (res.status === 401 || res.status === 403) { window.location.href = '/login'; return; }
-          throw new Error(`Erreur serveur (${res.status})`);
-        }
-        const data = await res.json();
-        setCategories(data.categories || []);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchCategories();
-  }, [refreshKey]);
+  // ── Édition ─────────────────────────────────────────────────────────
+  const [editing, setEditing] = useState(null); // catégorie en cours d'édition
+  const [editData, setEditData] = useState({ nom: '', description: '' });
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState(null);
+
+  const { canAccess } = usePermissions();
 
   const canCreate = canAccess('categories', 'create');
   const canUpdate = canAccess('categories', 'update');
@@ -55,8 +41,36 @@ export default function PageCategories() {
         method: 'DELETE', credentials: 'include',
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
-      setRefreshKey(p => p + 1);
+      list.refetch();
     } catch (err) { alert(err.message); }
+  };
+
+  const openEdit = (cat) => {
+    setEditError(null);
+    setEditData({ nom: cat.nom || '', description: cat.description || '' });
+    setEditing(cat);
+  };
+
+  const handleEdit = async (e) => {
+    e.preventDefault();
+    setEditLoading(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`http://localhost:5000/api/categories/${editing.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ nom: editData.nom, description: editData.description || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Erreur lors de la mise à jour de la catégorie');
+      setEditing(null);
+      list.refetch();
+    } catch (err) {
+      setEditError(err.message);
+    } finally {
+      setEditLoading(false);
+    }
   };
 
   const handleCreate = async (e) => {
@@ -74,7 +88,7 @@ export default function PageCategories() {
       if (!res.ok) throw new Error(data.message || 'Erreur lors de la création de la catégorie');
       setShowCreateModal(false);
       setFormData({ nom: '', description: '' });
-      setRefreshKey(p => p + 1);
+      list.refetch();
     } catch (err) {
       setFormError(err.message);
     } finally {
@@ -108,7 +122,7 @@ export default function PageCategories() {
       header: 'Actions',
       cell: (info) => (
         <div className="flex items-center gap-1">
-          {canUpdate && <button className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-primary hover:bg-base-200"><Pencil className="w-3.5 h-3.5" /></button>}
+          {canUpdate && <button onClick={() => openEdit(info.row.original)} className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-primary hover:bg-base-200" title="Modifier"><Pencil className="w-3.5 h-3.5" /></button>}
           {canDelete && <button onClick={() => handleDelete(info.row.original.id)} className="btn btn-ghost btn-xs rounded-lg text-base-content/40 hover:text-error hover:bg-base-200"><Trash2 className="w-3.5 h-3.5" /></button>}
         </div>
       ),
@@ -126,7 +140,7 @@ export default function PageCategories() {
             <p className="text-sm text-base-content/60 mt-1">Organisez les produits du catalogue par catégorie.</p>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setRefreshKey(p => p + 1)} disabled={loading} className="btn btn-outline btn-primary btn-sm rounded-xl gap-2 hover:scale-105 transition-all">
+            <button onClick={() => list.refetch()} disabled={loading} className="btn btn-outline btn-primary btn-sm rounded-xl gap-2 hover:scale-105 transition-all">
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Actualiser
             </button>
             {canCreate && (
@@ -140,16 +154,16 @@ export default function PageCategories() {
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-base-100 p-4 rounded-2xl border border-base-200 shadow-md flex items-center gap-4 hover:shadow-lg transition-all">
             <div className="p-3 bg-primary/10 rounded-xl text-primary"><Tag className="w-6 h-6" /></div>
-            <div><p className="text-xs text-base-content/50 font-semibold uppercase">Total Catégories</p><h3 className="text-2xl font-bold mt-0.5">{loading ? '—' : categories.length}</h3></div>
+            <div><p className="text-xs text-base-content/50 font-semibold uppercase">Total Catégories</p><h3 className="text-2xl font-bold mt-0.5">{firstLoad ? '—' : (list.data?.stats?.total ?? 0)}</h3></div>
           </div>
           <div className="bg-base-100 p-4 rounded-2xl border border-base-200 shadow-md flex items-center gap-4 hover:shadow-lg transition-all">
             <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-500"><FileText className="w-6 h-6" /></div>
-            <div><p className="text-xs text-base-content/50 font-semibold uppercase">Avec Description</p><h3 className="text-2xl font-bold mt-0.5">{loading ? '—' : categories.filter(c => c.description).length}</h3></div>
+            <div><p className="text-xs text-base-content/50 font-semibold uppercase">Avec Description</p><h3 className="text-2xl font-bold mt-0.5">{firstLoad ? '—' : (list.data?.stats?.avec_description ?? 0)}</h3></div>
           </div>
         </div>
 
         <div className="mt-8">
-          {loading ? (
+          {firstLoad ? (
             <div className="flex flex-col items-center justify-center py-20 gap-4 bg-base-100 rounded-2xl shadow-xl border border-base-200">
               <span className="loading loading-spinner loading-lg text-primary"></span>
               <p className="text-sm text-base-content/60 font-medium animate-pulse">Chargement des catégories...</p>
@@ -157,10 +171,21 @@ export default function PageCategories() {
           ) : error ? (
             <div className="rounded-2xl border border-error/25 bg-error/5 p-5 flex items-start gap-4">
               <AlertCircle className="w-6 h-6 text-error mt-0.5 shrink-0" /><div><h3 className="font-bold text-error">Erreur</h3><p className="text-sm text-base-content/70 mt-1">{error}</p>
-                <button onClick={() => setRefreshKey(p => p + 1)} className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Réessayer</button></div>
+                <button onClick={() => list.refetch()} className="btn btn-sm btn-outline border-error/40 text-error font-semibold rounded-lg mt-4">Réessayer</button></div>
             </div>
           ) : (
-            <DataTable columns={columns} data={categories} searchPlaceholder="Rechercher par nom..." />
+            <DataTableServer
+              columns={columns}
+              data={categories}
+              total={list.total}
+              pageCount={list.pageCount}
+              pagination={list.pagination}
+              onPaginationChange={list.setPagination}
+              search={list.search}
+              onSearchChange={list.onSearchChange}
+              loading={loading}
+              searchPlaceholder="Rechercher par nom, description..."
+            />
           )}
         </div>
       </div>
@@ -179,6 +204,25 @@ export default function PageCategories() {
           onChange={setFormData}
           onClose={() => setShowCreateModal(false)}
           onSubmit={handleCreate}
+        />
+      )}
+
+      {/* ── Modale d'édition ─────────────────────────────────────────── */}
+      {editing && (
+        <ResourceModal
+          title={`Modifier « ${editing.nom} »`}
+          icon={Pencil}
+          fields={[
+            { name: 'nom', label: 'Nom', required: true, placeholder: 'Informatique' },
+            { name: 'description', label: 'Description', type: 'textarea', placeholder: 'Produits et équipements informatiques' },
+          ]}
+          values={editData}
+          error={editError}
+          loading={editLoading}
+          submitLabel="Enregistrer"
+          onChange={setEditData}
+          onClose={() => setEditing(null)}
+          onSubmit={handleEdit}
         />
       )}
     </div>

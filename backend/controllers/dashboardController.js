@@ -21,9 +21,10 @@ exports.getStats = async (req, res) => {
         SELECT
           (SELECT COALESCE(SUM(quantite), 0) FROM stocks)                         AS stock_total,
           (SELECT COUNT(*) FROM produits)                                         AS produits_total,
-          (SELECT COUNT(*) FROM actifs)                                           AS actifs_total,
+          (SELECT COUNT(*) FROM actifs WHERE statut IS DISTINCT FROM 'rebut')     AS actifs_total,
           (SELECT COUNT(*) FROM entrepots)                                        AS entrepots_total,
-          (SELECT COALESCE(SUM(prix_unitaire), 0) FROM actifs)                    AS valeur_parc,
+          (SELECT COALESCE(SUM(prix_unitaire), 0) FROM actifs
+             WHERE statut IS DISTINCT FROM 'rebut')                               AS valeur_parc,
           (SELECT COUNT(*) FROM actifs WHERE statut = 'maintenance')              AS actifs_en_maintenance,
           (SELECT COUNT(*) FROM actifs WHERE date_prochaine_preventive IS NOT NULL
                                           AND date_prochaine_preventive <= NOW()) AS preventives_dues,
@@ -74,6 +75,7 @@ exports.getStats = async (req, res) => {
         FROM actifs a
         LEFT JOIN produits   p ON a.produit_id  = p.id
         LEFT JOIN categories c ON p.categorie_id = c.id
+        WHERE a.statut IS DISTINCT FROM 'rebut'
         GROUP BY COALESCE(c.nom, 'Sans catégorie')
         ORDER BY total DESC
       `),

@@ -15,17 +15,26 @@ const API = 'http://localhost:5000/api';
  * @param {string} dataKey - Clé du tableau dans la réponse (ex: 'produits').
  * @param {Object} [opts]  - { pageSize }.
  */
-export default function usePaginatedResource(path, dataKey, { pageSize = 10 } = {}) {
+export default function usePaginatedResource(path, dataKey, { pageSize = 10, filters: initialFilters = {} } = {}) {
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize });
   const [search, setSearch] = useState('');
+  const [filters, setFiltersState] = useState(initialFilters);
+
+  // Ne garde que les filtres réellement renseignés (valeur non vide), en chaînes.
+  const filterParams = Object.fromEntries(
+    Object.entries(filters)
+      .filter(([, v]) => v !== '' && v != null)
+      .map(([k, v]) => [k, String(v)])
+  );
 
   const query = useQuery({
-    queryKey: [path, pagination.pageIndex, pagination.pageSize, search],
+    queryKey: [path, pagination.pageIndex, pagination.pageSize, search, JSON.stringify(filterParams)],
     queryFn: async () => {
       const params = new URLSearchParams({
         page: String(pagination.pageIndex + 1),
         limit: String(pagination.pageSize),
         ...(search ? { search } : {}),
+        ...filterParams,
       });
       const res = await fetch(`${API}/${path}?${params.toString()}`, { credentials: 'include' });
       if (res.status === 401 || res.status === 403) { window.location.href = '/login'; return null; }
@@ -41,9 +50,15 @@ export default function usePaginatedResource(path, dataKey, { pageSize = 10 } = 
     setPagination((p) => ({ ...p, pageIndex: 0 }));
   };
 
-  // Récupère TOUTES les lignes (filtre de recherche courant inclus) pour l'export
+  // Met à jour les filtres et revient en page 1
+  const setFilters = (next) => {
+    setFiltersState(typeof next === 'function' ? next : next);
+    setPagination((p) => ({ ...p, pageIndex: 0 }));
+  };
+
+  // Récupère TOUTES les lignes (recherche + filtres courants inclus) pour l'export
   const fetchAll = async () => {
-    const params = new URLSearchParams({ page: '1', limit: '100000', ...(search ? { search } : {}) });
+    const params = new URLSearchParams({ page: '1', limit: '100000', ...(search ? { search } : {}), ...filterParams });
     const res = await fetch(`${API}/${path}?${params.toString()}`, { credentials: 'include' });
     if (!res.ok) throw new Error(`Erreur serveur (${res.status})`);
     const data = await res.json();
@@ -52,6 +67,7 @@ export default function usePaginatedResource(path, dataKey, { pageSize = 10 } = 
 
   const data = query.data;
   return {
+    data,                                  // réponse brute (pour des champs additionnels : stats…)
     rows: data?.[dataKey] ?? [],
     total: data?.metadata?.total_items ?? 0,
     pageCount: data?.metadata?.total_pages ?? 0,
@@ -59,6 +75,8 @@ export default function usePaginatedResource(path, dataKey, { pageSize = 10 } = 
     setPagination,
     search,
     onSearchChange,
+    filters,
+    setFilters,
     isFetching: query.isFetching,
     isError: query.isError,
     error: query.error,

@@ -15,8 +15,10 @@ exports.getAllActifs = async (req, res) => {
     const page   = parseInt(req.query.page)  || 1;
     const limit  = parseInt(req.query.limit) || 10;
     const search = (req.query.search || '').trim();
+    const produitId = req.query.produit_id ? parseInt(req.query.produit_id) : null;
+    const statut = req.query.statut || null; // 'en_stock' | 'affecte' | 'maintenance' | 'rebut'
 
-    const { rows, total } = await Actif.findPaginated({ page, limit, search });
+    const { rows, total } = await Actif.findPaginated({ page, limit, search, produitId, statut });
     const totalPages = Math.ceil(total / limit) || 1;
 
     res.status(200).json({
@@ -64,6 +66,19 @@ exports.getActifById = async (req, res) => {
  * @param {Object} req - Objet de requête Express (body: { produit_id, numero_serie, entrepot_id, ... }).
  * @param {Object} res - Objet de réponse Express.
  */
+exports.getActifBySerie = async (req, res) => {
+  try {
+    const actif = await Actif.findBySerie(req.params.numero);
+    if (!actif) {
+      return res.status(404).json({ message: 'Aucun actif trouvé pour ce numéro de série.' });
+    }
+    res.status(200).json(actif);
+  } catch (error) {
+    console.error('Erreur (getActifBySerie):', error);
+    res.status(500).json({ message: 'Erreur serveur.' });
+  }
+};
+
 exports.createActif = async (req, res) => {
   try {
     const { produit_id, numero_serie, entrepot_id } = req.body;
@@ -130,6 +145,28 @@ exports.updateActif = async (req, res) => {
     };
 
     const actifMisAJour = await Actif.update(id, dataToUpdate);
+
+    // STOCK DISPONIBLE : si l'édition fait FRANCHIR la frontière « en_stock » (changement
+    // de statut) ou DÉPLACE un actif en stock (changement de produit/entrepôt), on ajuste
+    // le disponible — exactement comme les mouvements et la maintenance. Le parc TOTAL,
+    // lui, ne bouge pas (l'actif existe toujours).
+    const etaitDispo   = existant.statut === 'en_stock';
+    const devientDispo = dataToUpdate.statut === 'en_stock';
+    const memeEmplacement =
+      Number(existant.produit_id)  === Number(dataToUpdate.produit_id) &&
+      Number(existant.entrepot_id) === Number(dataToUpdate.entrepot_id);
+    try {
+      if (etaitDispo && (!devientDispo || !memeEmplacement)) {
+        await ajusterStock(existant.produit_id, existant.entrepot_id, -1);
+        verifierSeuilCritique(existant.produit_id, existant.entrepot_id).catch(() => {});
+      }
+      if (devientDispo && (!etaitDispo || !memeEmplacement)) {
+        await ajusterStock(dataToUpdate.produit_id, dataToUpdate.entrepot_id, +1);
+      }
+    } catch (e) {
+      console.error('❌ Ajustement stock disponible (édition actif):', e.message);
+    }
+
     res.status(200).json({
       message: 'Actif mis à jour avec succès.',
       actif:   actifMisAJour,

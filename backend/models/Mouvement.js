@@ -15,16 +15,58 @@ class Mouvement {
       SELECT m.*, a.numero_serie,
              p.libelle AS produit_libelle,
              e.nom     AS entrepot_nom,
+             ed.nom    AS entrepot_destination_nom,
              u.nom_complet AS effectue_par_nom
       FROM mouvements m
-      LEFT JOIN actifs a       ON m.actif_id      = a.id
-      LEFT JOIN produits p     ON a.produit_id    = p.id
-      LEFT JOIN entrepots e    ON m.entrepot_id   = e.id
-      LEFT JOIN utilisateurs u ON m.effectue_par  = u.id
-      ORDER BY m.cree_le DESC
+      LEFT JOIN actifs a       ON m.actif_id                = a.id
+      LEFT JOIN produits p     ON a.produit_id              = p.id
+      LEFT JOIN entrepots e    ON m.entrepot_id             = e.id
+      LEFT JOIN entrepots ed   ON m.entrepot_destination_id = ed.id
+      LEFT JOIN utilisateurs u ON m.effectue_par            = u.id
+      ORDER BY m.cree_le DESC, m.id DESC
     `;
     const { rows } = await pool.query(query);
     return rows;
+  }
+
+  /**
+   * Page de mouvements (pagination + recherche + filtre type, côté serveur).
+   * @param {Object} opts - { page, limit, search, type }
+   * @returns {Promise<{rows: Array, total: number}>}
+   */
+  static async findPaginated({ page = 1, limit = 10, search = '', type = null } = {}) {
+    const offset = (page - 1) * limit;
+    const params = [];
+    const clauses = [];
+    if (search) {
+      params.push(`%${search}%`);
+      const i = params.length;
+      clauses.push(`(a.numero_serie ILIKE $${i} OR p.libelle ILIKE $${i} OR u.nom_complet ILIKE $${i} OR m.destinataire ILIKE $${i})`);
+    }
+    if (type) {
+      params.push(type);
+      clauses.push(`m.type_mouvement = $${params.length}`);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const joins = `
+      FROM mouvements m
+      LEFT JOIN actifs a       ON m.actif_id                = a.id
+      LEFT JOIN produits p     ON a.produit_id              = p.id
+      LEFT JOIN entrepots e    ON m.entrepot_id             = e.id
+      LEFT JOIN entrepots ed   ON m.entrepot_destination_id = ed.id
+      LEFT JOIN utilisateurs u ON m.effectue_par            = u.id`;
+
+    const { rows: cnt } = await pool.query(`SELECT COUNT(*)::int AS total ${joins} ${where}`, params);
+    const dp = [...params, limit, offset];
+    const { rows } = await pool.query(
+      `SELECT m.*, a.numero_serie, p.libelle AS produit_libelle,
+              e.nom AS entrepot_nom, ed.nom AS entrepot_destination_nom, u.nom_complet AS effectue_par_nom
+       ${joins} ${where}
+       ORDER BY m.cree_le DESC, m.id DESC
+       LIMIT $${dp.length - 1} OFFSET $${dp.length}`,
+      dp
+    );
+    return { rows, total: cnt[0].total };
   }
 
   /**
@@ -56,8 +98,8 @@ class Mouvement {
    */
   static async create(data) {
     const query = `
-      INSERT INTO mouvements (actif_id, effectue_par, entrepot_id, type_mouvement, notes, destinataire)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO mouvements (actif_id, effectue_par, entrepot_id, type_mouvement, notes, destinataire, entrepot_destination_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *;
     `;
     const values = [
@@ -67,6 +109,7 @@ class Mouvement {
       data.type_mouvement,
       data.notes || null,
       data.destinataire || null,
+      data.entrepot_destination_id || null,
     ];
     const { rows } = await pool.query(query, values);
     return rows[0];
