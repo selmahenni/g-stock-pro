@@ -44,8 +44,8 @@ export default function FicheActif() {
       setLoading(true);
       setError(null);
       const [actifRes, histRes] = await Promise.all([
-        fetch(`http://localhost:5000/api/actifs/${id}`, { credentials: 'include' }),
-        fetch(`http://localhost:5000/api/actifs/${id}/maintenances`, { credentials: 'include' }),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/actifs/${id}`, { credentials: 'include' }),
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/actifs/${id}/maintenances`, { credentials: 'include' }),
       ]);
       if (actifRes.status === 401 || actifRes.status === 403) { window.location.href = '/login'; return; }
       if (!actifRes.ok) throw new Error(actifRes.status === 404 ? 'Actif introuvable.' : `Erreur serveur (${actifRes.status})`);
@@ -84,7 +84,7 @@ export default function FicheActif() {
             rapport: formData.rapport || null,
             cout: formData.cout ? Number(formData.cout) : null,
           };
-      const res = await fetch(`http://localhost:5000/api/actifs/${id}/${endpoint}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/actifs/${id}/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

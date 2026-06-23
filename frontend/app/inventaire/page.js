@@ -30,7 +30,7 @@ export default function PageInventaire() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('http://localhost:5000/api/entrepots', { credentials: 'include' });
+        const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/entrepots', { credentials: 'include' });
         if (res.ok) { const d = await res.json(); setEntrepots(Array.isArray(d) ? d : (d.entrepots || [])); }
       } catch { /* le filtre restera vide */ }
     })();

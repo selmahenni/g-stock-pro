@@ -34,7 +34,7 @@ export default function UserMenu() {
 
   const handleLogout = async () => {
     try {
-      await fetch('http://localhost:5000/api/utilisateurs/deconnexion', {
+      await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/utilisateurs/deconnexion', {
         method: 'POST',
         credentials: 'include',
       });

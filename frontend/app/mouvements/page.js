@@ -48,9 +48,9 @@ export default function PageMouvements() {
     if (optionsChargees) return;
     try {
       const [actifsRes, produitsRes, entrepotsRes] = await Promise.all([
-        fetch('http://localhost:5000/api/actifs?limit=500', { credentials: 'include' }),
-        fetch('http://localhost:5000/api/produits?limit=500', { credentials: 'include' }),
-        fetch('http://localhost:5000/api/entrepots', { credentials: 'include' }),
+        fetch(process.env.NEXT_PUBLIC_API_URL + '/api/actifs?limit=500', { credentials: 'include' }),
+        fetch(process.env.NEXT_PUBLIC_API_URL + '/api/produits?limit=500', { credentials: 'include' }),
+        fetch(process.env.NEXT_PUBLIC_API_URL + '/api/entrepots', { credentials: 'include' }),
       ]);
       if (actifsRes.ok) {
         const data = await actifsRes.json();
@@ -98,7 +98,7 @@ export default function PageMouvements() {
   const handleDelete = async (id) => {
     if (!confirm('Confirmer la suppression de ce mouvement ?')) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/mouvements/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/mouvements/${id}`, {
         method: 'DELETE', credentials: 'include',
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
@@ -112,7 +112,7 @@ export default function PageMouvements() {
     setFormError(null);
     try {
       // L'entrepôt est déduit côté backend à partir de l'actif (plus de saisie ici).
-      const res = await fetch('http://localhost:5000/api/mouvements', {
+      const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/mouvements', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

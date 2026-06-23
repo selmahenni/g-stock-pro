@@ -12,7 +12,7 @@ import {
   CheckCircle2, Monitor, Clock, XCircle,
 } from 'lucide-react';
 
-const API = 'http://localhost:5000/api';
+const API = process.env.NEXT_PUBLIC_API_URL + '/api';
 
 export default function PageAccueil() {
   const { role } = usePermissions();

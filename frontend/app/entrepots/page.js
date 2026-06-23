@@ -41,7 +41,7 @@ export default function PageEntrepots() {
   const handleDelete = async (id) => {
     if (!confirm('Confirmer la suppression de cet entrepôt ?')) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/entrepots/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/entrepots/${id}`, {
         method: 'DELETE', credentials: 'include',
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
@@ -60,7 +60,7 @@ export default function PageEntrepots() {
     setEditLoading(true);
     setEditError(null);
     try {
-      const res = await fetch(`http://localhost:5000/api/entrepots/${editing.id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/entrepots/${editing.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -86,7 +86,7 @@ export default function PageEntrepots() {
     setFormLoading(true);
     setFormError(null);
     try {
-      const res = await fetch('http://localhost:5000/api/entrepots', {
+      const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/entrepots', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

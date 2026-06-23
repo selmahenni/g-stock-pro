@@ -62,7 +62,7 @@ export default function PageMaintenances() {
     let actif = true;
     (async () => {
       try {
-        const res = await fetch('http://localhost:5000/api/maintenances/echeancier?limit=12', { credentials: 'include' });
+        const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/maintenances/echeancier?limit=12', { credentials: 'include' });
         if (!res.ok) return;
         const data = await res.json();
         if (!actif) return;
@@ -92,9 +92,9 @@ export default function PageMaintenances() {
     if (optionsChargees) return;
     try {
       const [actifsRes, produitsRes, annuaireRes] = await Promise.all([
-        fetch('http://localhost:5000/api/actifs?limit=500', { credentials: 'include' }),
-        fetch('http://localhost:5000/api/produits?limit=500', { credentials: 'include' }),
-        fetch('http://localhost:5000/api/messages/annuaire', { credentials: 'include' }),
+        fetch(process.env.NEXT_PUBLIC_API_URL + '/api/actifs?limit=500', { credentials: 'include' }),
+        fetch(process.env.NEXT_PUBLIC_API_URL + '/api/produits?limit=500', { credentials: 'include' }),
+        fetch(process.env.NEXT_PUBLIC_API_URL + '/api/messages/annuaire', { credentials: 'include' }),
       ]);
       if (actifsRes.ok) { const data = await actifsRes.json(); setActifs(data.actifs || []); }
       if (produitsRes.ok) { const data = await produitsRes.json(); setProduits(data.produits || []); }
@@ -122,7 +122,7 @@ export default function PageMaintenances() {
   const handleDelete = async (id) => {
     if (!confirm('Confirmer la suppression de ce ticket ?')) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/maintenances/${id}`, { method: 'DELETE', credentials: 'include' });
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/maintenances/${id}`, { method: 'DELETE', credentials: 'include' });
       if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
       (list.refetch(), setRefreshKey(p => p + 1));
     } catch (err) { alert(err.message); }
@@ -145,7 +145,7 @@ export default function PageMaintenances() {
     setEditFormLoading(true);
     setEditFormError(null);
     try {
-      const res = await fetch(`http://localhost:5000/api/maintenances/${editingTicket.id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/maintenances/${editingTicket.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -301,7 +301,7 @@ export default function PageMaintenances() {
     if (!panneData.rapport || !panneData.rapport.trim()) { setPanneError('Décrivez la panne constatée.'); return; }
     setPanneLoading(true);
     try {
-      const res = await fetch(`http://localhost:5000/api/actifs/${panneData.actif_id}/panne`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/actifs/${panneData.actif_id}/panne`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

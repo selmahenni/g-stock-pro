@@ -57,13 +57,13 @@ export default function PageProduits() {
   // Chargement des options Catégorie / Fournisseur (sélecteurs du formulaire produit)
   const loadCategories = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/categories?limit=500', { credentials: 'include' });
+      const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/categories?limit=500', { credentials: 'include' });
       if (res.ok) { const data = await res.json(); setCategories(data.categories || []); }
     } catch { /* ignore */ }
   };
   const loadFournisseurs = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/fournisseurs?limit=500', { credentials: 'include' });
+      const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/fournisseurs?limit=500', { credentials: 'include' });
       if (res.ok) { const data = await res.json(); setFournisseurs(data.fournisseurs || []); }
     } catch { /* ignore */ }
   };
@@ -85,7 +85,7 @@ export default function PageProduits() {
   const handleDelete = async (id) => {
     if (!confirm('Confirmer la suppression de ce produit ?')) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/produits/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/produits/${id}`, {
         method: 'DELETE', credentials: 'include',
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
@@ -134,7 +134,7 @@ export default function PageProduits() {
   const uploadImage = async (file) => {
     const body = new FormData();
     body.append('image', file);
-    const res = await fetch('http://localhost:5000/api/uploads/image', {
+    const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/uploads/image', {
       method: 'POST',
       credentials: 'include',
       body,
@@ -172,7 +172,7 @@ export default function PageProduits() {
           : null,
       };
       const isEdit = editId != null;
-      const res = await fetch(`http://localhost:5000/api/produits${isEdit ? `/${editId}` : ''}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/produits${isEdit ? `/${editId}` : ''}`, {
         method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -197,7 +197,7 @@ export default function PageProduits() {
     categorie: {
       title: 'Ajout rapide — Catégorie',
       icon: Tag,
-      endpoint: 'http://localhost:5000/api/categories',
+      endpoint: process.env.NEXT_PUBLIC_API_URL + '/api/categories',
       initial: { nom: '', description: '' },
       fields: [
         { name: 'nom', label: 'Nom', required: true, placeholder: 'Informatique' },
@@ -210,7 +210,7 @@ export default function PageProduits() {
     fournisseur: {
       title: 'Ajout rapide — Fournisseur',
       icon: Building2,
-      endpoint: 'http://localhost:5000/api/fournisseurs',
+      endpoint: process.env.NEXT_PUBLIC_API_URL + '/api/fournisseurs',
       initial: { nom: '', adresse_email: '', telephone: '' },
       fields: [
         { name: 'nom', label: 'Nom', required: true, placeholder: 'Fournisseur SARL' },
@@ -414,7 +414,7 @@ export default function PageProduits() {
                   selectedLabel={categorieFilterLabel}
                   onChange={(v, label) => { setCategorieFilterLabel(label); list.setFilters({ ...list.filters, categorie_id: v }); }}
                   fetchOptions={async (q) => {
-                    const res = await fetch(`http://localhost:5000/api/categories?limit=20${q ? `&search=${encodeURIComponent(q)}` : ''}`, { credentials: 'include' });
+                    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/categories?limit=20${q ? `&search=${encodeURIComponent(q)}` : ''}`, { credentials: 'include' });
                     if (!res.ok) return [];
                     const d = await res.json();
                     return (d.categories || []).map(c => ({ value: c.id, label: c.nom }));

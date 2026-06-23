@@ -37,7 +37,7 @@ export default function PageCategories() {
   const handleDelete = async (id) => {
     if (!confirm('Confirmer la suppression de cette catégorie ?')) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/categories/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/categories/${id}`, {
         method: 'DELETE', credentials: 'include',
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
@@ -56,7 +56,7 @@ export default function PageCategories() {
     setEditLoading(true);
     setEditError(null);
     try {
-      const res = await fetch(`http://localhost:5000/api/categories/${editing.id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/categories/${editing.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -78,7 +78,7 @@ export default function PageCategories() {
     setFormLoading(true);
     setFormError(null);
     try {
-      const res = await fetch('http://localhost:5000/api/categories', {
+      const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/categories', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

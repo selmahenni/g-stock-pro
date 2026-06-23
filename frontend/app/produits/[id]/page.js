@@ -32,10 +32,10 @@ export default function FicheProduit() {
         setError(null);
 
         const [prodRes, actifsRes, catRes, fournRes] = await Promise.all([
-          fetch(`http://localhost:5000/api/produits/${id}`, { credentials: 'include' }),
-          fetch('http://localhost:5000/api/actifs?limit=500', { credentials: 'include' }),
-          fetch('http://localhost:5000/api/categories?limit=500', { credentials: 'include' }),
-          fetch('http://localhost:5000/api/fournisseurs?limit=500', { credentials: 'include' }),
+          fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/produits/${id}`, { credentials: 'include' }),
+          fetch(process.env.NEXT_PUBLIC_API_URL + '/api/actifs?limit=500', { credentials: 'include' }),
+          fetch(process.env.NEXT_PUBLIC_API_URL + '/api/categories?limit=500', { credentials: 'include' }),
+          fetch(process.env.NEXT_PUBLIC_API_URL + '/api/fournisseurs?limit=500', { credentials: 'include' }),
         ]);
 
         if (prodRes.status === 401 || prodRes.status === 403) { window.location.href = '/login'; return; }

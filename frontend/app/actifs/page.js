@@ -65,8 +65,8 @@ export default function PageActifs() {
     if (optionsChargees) return;
     try {
       const [produitsRes, entrepotsRes] = await Promise.all([
-        fetch('http://localhost:5000/api/produits?limit=1000', { credentials: 'include' }),
-        fetch('http://localhost:5000/api/entrepots', { credentials: 'include' }),
+        fetch(process.env.NEXT_PUBLIC_API_URL + '/api/produits?limit=1000', { credentials: 'include' }),
+        fetch(process.env.NEXT_PUBLIC_API_URL + '/api/entrepots', { credentials: 'include' }),
       ]);
       if (produitsRes.ok) { const data = await produitsRes.json(); setProduits(data.produits || []); }
       if (entrepotsRes.ok) { const data = await entrepotsRes.json(); setEntrepots(Array.isArray(data) ? data : (data.entrepots || [])); }
@@ -83,7 +83,7 @@ export default function PageActifs() {
   const handleDelete = async (id) => {
     if (!confirm('Confirmer la suppression de cet actif ?')) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/actifs/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/actifs/${id}`, {
         method: 'DELETE', credentials: 'include',
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
@@ -110,7 +110,7 @@ export default function PageActifs() {
     setFormLoading(true);
     setFormError(null);
     try {
-      const res = await fetch('http://localhost:5000/api/actifs', {
+      const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/actifs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -153,7 +153,7 @@ export default function PageActifs() {
         numeros_serie = Array.from({ length: qty }, (_, i) => `${prefix}${String(i + 1).padStart(3, '0')}`);
       }
 
-      const res = await fetch('http://localhost:5000/api/actifs/batch', {
+      const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/actifs/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -210,7 +210,7 @@ export default function PageActifs() {
     setEditFormLoading(true);
     setEditFormError(null);
     try {
-      const res = await fetch(`http://localhost:5000/api/actifs/${editingActif.id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/actifs/${editingActif.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -422,7 +422,7 @@ export default function PageActifs() {
                   selectedLabel={produitFilterLabel}
                   onChange={(v, label) => { setProduitFilterLabel(label); list.setFilters({ ...list.filters, produit_id: v }); }}
                   fetchOptions={async (q) => {
-                    const res = await fetch(`http://localhost:5000/api/produits?limit=20${q ? `&search=${encodeURIComponent(q)}` : ''}`, { credentials: 'include' });
+                    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/produits?limit=20${q ? `&search=${encodeURIComponent(q)}` : ''}`, { credentials: 'include' });
                     if (!res.ok) return [];
                     const d = await res.json();
                     return (d.produits || []).map(p => ({ value: p.id, label: `${p.libelle}${p.sku ? ` (${p.sku})` : ''}` }));

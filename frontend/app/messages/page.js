@@ -6,7 +6,7 @@ import {
   CheckCircle2, ChevronDown, ChevronUp, User, Globe,
 } from 'lucide-react';
 
-const API = 'http://localhost:5000/api';
+const API = process.env.NEXT_PUBLIC_API_URL + '/api';
 
 const roleLabel = {
   super_admin: 'Super-admin', magasinier: 'Magasinier', technicien: 'Technicien', consultant: 'Consultant',

@@ -37,7 +37,7 @@ export default function PageFournisseurs() {
   const handleDelete = async (id) => {
     if (!confirm('Confirmer la suppression de ce fournisseur ?')) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/fournisseurs/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/fournisseurs/${id}`, {
         method: 'DELETE', credentials: 'include',
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
@@ -56,7 +56,7 @@ export default function PageFournisseurs() {
     setEditLoading(true);
     setEditError(null);
     try {
-      const res = await fetch(`http://localhost:5000/api/fournisseurs/${editing.id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/fournisseurs/${editing.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -82,7 +82,7 @@ export default function PageFournisseurs() {
     setFormLoading(true);
     setFormError(null);
     try {
-      const res = await fetch('http://localhost:5000/api/fournisseurs', {
+      const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/fournisseurs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

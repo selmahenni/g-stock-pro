@@ -8,7 +8,7 @@ import {
   HelpCircle, PackageX, RefreshCw, ScanLine,
 } from 'lucide-react';
 
-const API = 'http://localhost:5000/api';
+const API = process.env.NEXT_PUBLIC_API_URL + '/api';
 
 /**
  * @component AuditSession

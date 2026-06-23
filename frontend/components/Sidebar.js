@@ -30,7 +30,7 @@ export default function Sidebar({ collapsed, mobileOpen, onClose, onToggleCollap
   // Compteur de messages non lus (badge sur « Messagerie »).
   const fetchUnread = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/messages/non-lus', { credentials: 'include' });
+      const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/messages/non-lus', { credentials: 'include' });
       if (!res.ok) return;
       const data = await res.json();
       setUnreadMessages(data.non_lus ?? 0);

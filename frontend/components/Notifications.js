@@ -16,7 +16,7 @@ export default function Notifications() {
 
   const fetchUnread = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/notifications?limit=1', {
+      const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/notifications?limit=1', {
         credentials: 'include',
       });
       if (!res.ok) { setUnread(0); return; }

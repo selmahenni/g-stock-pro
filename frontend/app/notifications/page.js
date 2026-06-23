@@ -26,7 +26,7 @@ export default function PageNotifications() {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch('http://localhost:5000/api/notifications?limit=100', {
+      const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/notifications?limit=100', {
         credentials: 'include',
       });
       if (!res.ok) {
@@ -49,7 +49,7 @@ export default function PageNotifications() {
     setItems(prev => prev.map(n => (n.id === id ? { ...n, est_lu: true } : n)));
     setUnread(prev => Math.max(prev - 1, 0));
     try {
-      await fetch(`http://localhost:5000/api/notifications/${id}/lu`, { method: 'PATCH', credentials: 'include' });
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/notifications/${id}/lu`, { method: 'PATCH', credentials: 'include' });
     } catch { /* resync au prochain fetch */ }
   };
 
@@ -57,7 +57,7 @@ export default function PageNotifications() {
     setItems(prev => prev.map(n => ({ ...n, est_lu: true })));
     setUnread(0);
     try {
-      await fetch('http://localhost:5000/api/notifications/tout-lu', { method: 'PATCH', credentials: 'include' });
+      await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/notifications/tout-lu', { method: 'PATCH', credentials: 'include' });
     } catch { /* ignore */ }
   };
 

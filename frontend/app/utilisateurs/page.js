@@ -65,7 +65,7 @@ export default function PageUtilisateurs() {
     setFormLoading(true);
     setFormError(null);
     try {
-      const res = await fetch('http://localhost:5000/api/utilisateurs', {
+      const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/utilisateurs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -88,7 +88,7 @@ export default function PageUtilisateurs() {
     setFormLoading(true);
     setFormError(null);
     try {
-      const res = await fetch(`http://localhost:5000/api/utilisateurs/${selectedUser.id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/utilisateurs/${selectedUser.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -114,7 +114,7 @@ export default function PageUtilisateurs() {
     setFormLoading(true);
     setFormError(null);
     try {
-      const res = await fetch(`http://localhost:5000/api/utilisateurs/${selectedUser.id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/utilisateurs/${selectedUser.id}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -134,7 +134,7 @@ export default function PageUtilisateurs() {
    */
   const handleToggleStatut = async (user) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/utilisateurs/${user.id}/statut`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/utilisateurs/${user.id}/statut`, {
         method: 'PATCH',
         credentials: 'include',
       });

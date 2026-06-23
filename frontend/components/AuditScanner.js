@@ -7,7 +7,7 @@ import {
   X, ScanLine, Package, Building2, AlertCircle, CheckCircle2, Save, RefreshCw,
 } from 'lucide-react';
 
-const API = 'http://localhost:5000/api';
+const API = process.env.NEXT_PUBLIC_API_URL + '/api';
 const STATUTS = [
   { value: 'en_stock', label: 'En stock' },
   { value: 'affecte', label: 'Affecté' },
