@@ -132,6 +132,98 @@ export async function genererBonDeSortie(m) {
 }
 
 /**
+ * Bon de sortie GROUPÉ (module Bons de sortie) : un en-tête + un tableau des actifs sortis.
+ * @param {Object} bon - { id, reference, destinataire, notes, effectue_par_nom, cree_le, lignes: [{ numero_serie, produit_libelle, entrepot_nom }] }
+ */
+export async function genererBonDeSortieGroupe(bon) {
+  const { default: jsPDF } = await import('jspdf');
+  const doc = new jsPDF();
+  const lignes = bon.lignes || [];
+  const reference = bon.reference || `BS-${bon.id}`;
+
+  entete(doc, { titre: 'BON DE SORTIE', numero: reference });
+
+  let y = 46;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(...PRIMARY);
+  doc.text('Sortie groupée de stock', 14, y);
+  y += 10;
+
+  y = fiche(doc, y, [
+    ['Date', fmtDate(bon.cree_le, true)],
+    ['Destinataire', bon.destinataire],
+    ['Nombre d\'actifs', String(lignes.length)],
+    ['Effectué par', bon.effectue_par_nom],
+  ]);
+
+  y += 2;
+
+  // ── Tableau des lignes (N° / Série / Produit / Entrepôt) ──
+  const cols = [
+    { x: 14,  w: 12,  label: '#' },
+    { x: 26,  w: 50,  label: 'N° Série' },
+    { x: 76,  w: 70,  label: 'Produit' },
+    { x: 146, w: 50,  label: 'Entrepôt' },
+  ];
+
+  const dessinerEnteteTable = (yy) => {
+    doc.setFillColor(...PRIMARY);
+    doc.rect(14, yy, 182, 8, 'F');
+    doc.setTextColor(255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    cols.forEach(c => doc.text(c.label, c.x + 2, yy + 5.5));
+    return yy + 8;
+  };
+
+  y = dessinerEnteteTable(y);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...DARK);
+  doc.setFontSize(9);
+
+  lignes.forEach((l, i) => {
+    // Saut de page si nécessaire (réserve l'espace pour le pied)
+    if (y > 268) {
+      pied(doc);
+      doc.addPage();
+      y = 20;
+      y = dessinerEnteteTable(y);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...DARK);
+      doc.setFontSize(9);
+    }
+    if (i % 2 === 1) {
+      doc.setFillColor(243, 243, 248);
+      doc.rect(14, y, 182, 7, 'F');
+    }
+    const serie = doc.splitTextToSize(String(l.numero_serie || '—'), cols[1].w - 4)[0];
+    const produit = doc.splitTextToSize(String(l.produit_libelle || '—'), cols[2].w - 4)[0];
+    const entrepot = doc.splitTextToSize(String(l.entrepot_nom || '—'), cols[3].w - 4)[0];
+    doc.text(String(i + 1), cols[0].x + 2, y + 5);
+    doc.text(serie, cols[1].x + 2, y + 5);
+    doc.text(produit, cols[2].x + 2, y + 5);
+    doc.text(entrepot, cols[3].x + 2, y + 5);
+    y += 7;
+  });
+
+  // Bordure du tableau
+  doc.setDrawColor(210);
+  doc.setLineWidth(0.3);
+  doc.line(14, y, 196, y);
+
+  y += 8;
+  if (bon.notes && y < 240) {
+    cadreTexte(doc, y, 'Notes / Motif', bon.notes, 28);
+  }
+
+  signatures(doc, 'Responsable magasin', 'Bénéficiaire');
+  pied(doc);
+
+  doc.save(`bon-sortie-${reference}.pdf`);
+}
+
+/**
  * Rapport de maintenance (module Maintenance).
  * @param {Object} t - ticket { id, type_maintenance, statut, date_intervention, actif_serie, produit_libelle, technicien_nom, cout, rapport }
  */

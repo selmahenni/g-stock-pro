@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic';
 import DataTableServer from '../../components/DataTableServer';
 import ExportButtons from '../../components/ExportButtons';
 import FilterSelect from '../../components/FilterSelect';
+import AsyncSelect from '../../components/AsyncSelect';
 import ResourceModal from '../../components/ResourceModal';
 import StatusBadge from '../../components/StatusBadge';
 import usePermissions from '../../hooks/usePermissions';
@@ -56,25 +57,24 @@ export default function PageActifs() {
 
   const { canAccess } = usePermissions();
 
-  useEffect(() => {
-    async function fetchOptions() {
-      try {
-        const [produitsRes, entrepotsRes] = await Promise.all([
-          fetch('http://localhost:5000/api/produits?limit=500', { credentials: 'include' }),
-          fetch('http://localhost:5000/api/entrepots', { credentials: 'include' }),
-        ]);
-        if (produitsRes.ok) {
-          const data = await produitsRes.json();
-          setProduits(data.produits || []);
-        }
-        if (entrepotsRes.ok) {
-          const data = await entrepotsRes.json();
-          setEntrepots(Array.isArray(data) ? data : (data.entrepots || []));
-        }
-      } catch {}
-    }
-    fetchOptions();
-  }, []);
+  // Options du FORMULAIRE d'ajout (produits + entrepôts) chargées À LA DEMANDE
+  // (à l'ouverture de la modale), jamais au chargement de la page.
+  const [optionsChargees, setOptionsChargees] = useState(false);
+  const [produitFilterLabel, setProduitFilterLabel] = useState(''); // libellé du produit filtré (AsyncSelect)
+  const chargerOptions = async () => {
+    if (optionsChargees) return;
+    try {
+      const [produitsRes, entrepotsRes] = await Promise.all([
+        fetch('http://localhost:5000/api/produits?limit=1000', { credentials: 'include' }),
+        fetch('http://localhost:5000/api/entrepots', { credentials: 'include' }),
+      ]);
+      if (produitsRes.ok) { const data = await produitsRes.json(); setProduits(data.produits || []); }
+      if (entrepotsRes.ok) { const data = await entrepotsRes.json(); setEntrepots(Array.isArray(data) ? data : (data.entrepots || [])); }
+      setOptionsChargees(true);
+    } catch { /* réessaiera à la prochaine ouverture */ }
+  };
+
+  const ouvrirAjout = () => { setFormError(null); setBatchResult(null); chargerOptions(); setShowCreateModal(true); };
 
   const canCreate = canAccess('actifs', 'create');
   const canUpdate = canAccess('actifs', 'update');
@@ -99,6 +99,7 @@ export default function PageActifs() {
     setBatchMode(false);
     setBatchResult(null);
     setFormError(null);
+    chargerOptions(); // charge produits/entrepôts à la demande
     setFormData((prev) => ({ ...prev, numero_serie: text }));
     setShowCreateModal(true);
   };
@@ -375,7 +376,7 @@ export default function PageActifs() {
               </button>
             )}
             {canCreate && (
-              <button onClick={() => { setFormError(null); setBatchResult(null); setShowCreateModal(true); }} className="btn btn-primary btn-sm rounded-xl gap-2 shadow-lg shadow-primary/25 hover:scale-105 transition-all">
+              <button onClick={ouvrirAjout} className="btn btn-primary btn-sm rounded-xl gap-2 shadow-lg shadow-primary/25 hover:scale-105 transition-all">
                 <Plus className="w-4 h-4" /> Ajouter des actifs
               </button>
             )}
@@ -416,12 +417,18 @@ export default function PageActifs() {
                   allLabel="Tous les statuts"
                   title="Filtrer par statut"
                 />
-                <FilterSelect
+                <AsyncSelect
                   value={list.filters.produit_id}
-                  onChange={(v) => list.setFilters({ ...list.filters, produit_id: v })}
-                  options={produits.map(p => ({ value: p.id, label: `${p.libelle}${p.sku ? ` (${p.sku})` : ''}` }))}
+                  selectedLabel={produitFilterLabel}
+                  onChange={(v, label) => { setProduitFilterLabel(label); list.setFilters({ ...list.filters, produit_id: v }); }}
+                  fetchOptions={async (q) => {
+                    const res = await fetch(`http://localhost:5000/api/produits?limit=20${q ? `&search=${encodeURIComponent(q)}` : ''}`, { credentials: 'include' });
+                    if (!res.ok) return [];
+                    const d = await res.json();
+                    return (d.produits || []).map(p => ({ value: p.id, label: `${p.libelle}${p.sku ? ` (${p.sku})` : ''}` }));
+                  }}
                   allLabel="Tous les produits"
-                  title="Filtrer par produit"
+                  placeholder="Rechercher un produit…"
                 />
                 <ExportButtons filename="actifs" title="Parc d'Actifs" columns={exportColumns} fetchRows={list.fetchAll} formats={['excel']} />
               </div>

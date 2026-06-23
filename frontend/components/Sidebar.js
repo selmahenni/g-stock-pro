@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import {
   Boxes, Users, LayoutDashboard, Package, Layers,
   Truck, Tag, Building2, Warehouse, Wrench, X, ClipboardList, ScrollText,
-  ChevronsLeft, ChevronsRight, Mail,
+  ChevronsLeft, ChevronsRight, Mail, FileDown,
 } from 'lucide-react';
 import usePermissions from '../hooks/usePermissions';
 
@@ -64,6 +64,7 @@ export default function Sidebar({ collapsed, mobileOpen, onClose, onToggleCollap
       { href: '/inventaire',  label: 'Inventaire',   icon: ClipboardList,   module: 'stocks' },
       { href: '/actifs',      label: 'Actifs',       icon: Layers,          module: 'actifs' },
       { href: '/mouvements',  label: 'Mouvements',   icon: Truck,           module: 'mouvements' },
+      { href: '/bons-sortie', label: 'Bons de sortie', icon: FileDown,      module: 'mouvements' },
       { href: '/maintenances',label: 'Maintenance',  icon: Wrench,          module: 'maintenances' },
     ] },
     { titre: 'Administration', items: [

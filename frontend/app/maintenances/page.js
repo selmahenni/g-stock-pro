@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import DataTableServer from '../../components/DataTableServer';
 import FilterSelect from '../../components/FilterSelect';
@@ -27,9 +27,15 @@ export default function PageMaintenances() {
   const loading = list.isFetching;
   const firstLoad = loading && !list.data;
   const error = list.isError ? (list.error?.message || 'Erreur de chargement.') : null;
-  const [refreshKey, setRefreshKey] = useState(0); // rafraîchit les référentiels (actifs/échéancier)
+  const [refreshKey, setRefreshKey] = useState(0); // rafraîchit l'échéancier après mutation
+  // Référentiels du formulaire « Déclarer une panne » — chargés à l'ouverture de la modale (lazy)
   const [actifs, setActifs] = useState([]);
   const [produits, setProduits] = useState([]);
+  const [optionsChargees, setOptionsChargees] = useState(false);
+  // Échéancier préventif : calculé CÔTÉ SERVEUR (top N + totaux), pas de chargement massif
+  const [echeancier, setEcheancier] = useState([]);
+  const [echeancierTotal, setEcheancierTotal] = useState(0);
+  const [enRetard, setEnRetard] = useState(0);
   const { canAccess } = usePermissions();
 
   // Onglet actif = dérivé du filtre statut serveur (onglets + sélecteur restent synchronisés)
@@ -51,74 +57,56 @@ export default function PageMaintenances() {
   const [panneError, setPanneError] = useState(null);
   const canDeclarer = canAccess('actifs', 'update'); // super_admin, magasinier, technicien
 
+  // Charge l'échéancier préventif depuis le backend (calcul serveur : top 12 + totaux).
   useEffect(() => {
-    async function fetchOptions() {
+    let actif = true;
+    (async () => {
       try {
-        const [actifsRes, produitsRes, annuaireRes] = await Promise.all([
-          fetch('http://localhost:5000/api/actifs?limit=500', { credentials: 'include' }),
-          fetch('http://localhost:5000/api/produits?limit=500', { credentials: 'include' }),
-          fetch('http://localhost:5000/api/messages/annuaire', { credentials: 'include' }),
-        ]);
-        if (actifsRes.ok) { const data = await actifsRes.json(); setActifs(data.actifs || []); }
-        if (produitsRes.ok) { const data = await produitsRes.json(); setProduits(data.produits || []); }
-        if (annuaireRes.ok) {
-          const data = await annuaireRes.json();
-          setTechniciens((data.utilisateurs || []).filter(u => u.role === 'technicien'));
-        }
+        const res = await fetch('http://localhost:5000/api/maintenances/echeancier?limit=12', { credentials: 'include' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!actif) return;
+        setEcheancier((data.echeancier || []).map(e => ({
+          actif_id: e.actif_id,
+          numero_serie: e.numero_serie,
+          produit: e.produit || '—',
+          derniere: null,
+          prochaine: e.prochaine ? new Date(e.prochaine).getTime() : null,
+        })));
+        setEcheancierTotal(data.total || 0);
+        setEnRetard(data.en_retard || 0);
       } catch {}
-    }
-    fetchOptions();
+    })();
+    return () => { actif = false; };
   }, [refreshKey]);
 
-  // Tick périodique pour rafraîchir le décompte de l'échéancier (intervalles courts)
-  const [tick, setTick] = useState(0);
+  // Tick périodique : force le recalcul du « délai restant » affiché (sans requête réseau).
+  const [, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick(x => x + 1), 30000);
     return () => clearInterval(t);
   }, []);
 
-  /**
-   * Échéancier préventif : s'appuie sur `actif.date_prochaine_preventive` (maintenue par le
-   * backend), avec repli (création + intervalle). Indépendant de la liste paginée des tickets.
-   */
-  const echeancier = useMemo(() => {
-    const UNITE_MS = { minute: 60000, heure: 3600000, jour: 86400000, mois: 2592000000, annee: 31536000000 };
-    const maintenant = Date.now();
-    const produitsById = new Map(produits.map(p => [p.id, p]));
+  // Options du formulaire « Déclarer une panne » — chargées UNIQUEMENT à l'ouverture de la modale.
+  const chargerOptions = async () => {
+    if (optionsChargees) return;
+    try {
+      const [actifsRes, produitsRes, annuaireRes] = await Promise.all([
+        fetch('http://localhost:5000/api/actifs?limit=500', { credentials: 'include' }),
+        fetch('http://localhost:5000/api/produits?limit=500', { credentials: 'include' }),
+        fetch('http://localhost:5000/api/messages/annuaire', { credentials: 'include' }),
+      ]);
+      if (actifsRes.ok) { const data = await actifsRes.json(); setActifs(data.actifs || []); }
+      if (produitsRes.ok) { const data = await produitsRes.json(); setProduits(data.produits || []); }
+      if (annuaireRes.ok) {
+        const data = await annuaireRes.json();
+        setTechniciens((data.utilisateurs || []).filter(u => u.role === 'technicien'));
+      }
+      setOptionsChargees(true);
+    } catch {}
+  };
 
-    const intervalleMs = (p) => {
-      if (p?.intervalle_valeur && p?.intervalle_unite) return p.intervalle_valeur * (UNITE_MS[p.intervalle_unite] || UNITE_MS.jour);
-      if (p?.intervalle_maintenance_jours) return p.intervalle_maintenance_jours * UNITE_MS.jour;
-      return null;
-    };
-
-    return actifs
-      .map(a => {
-        const p = produitsById.get(a.produit_id);
-        const dureeMs = intervalleMs(p);
-        const hasDate = !!a.date_prochaine_preventive;
-        if (!hasDate && (!p?.est_maintenable || !dureeMs)) return null;
-
-        const baseMs = a.cree_le ? new Date(a.cree_le).getTime() : null;
-        const prochaineMs = hasDate
-          ? new Date(a.date_prochaine_preventive).getTime()
-          : (baseMs != null && dureeMs ? baseMs + dureeMs : null);
-        if (prochaineMs == null) return null;
-
-        return {
-          actif_id: a.id,
-          numero_serie: a.numero_serie,
-          produit: p?.libelle || '—',
-          derniere: null,
-          prochaine: prochaineMs,
-          msRestants: prochaineMs - maintenant,
-        };
-      })
-      .filter(Boolean)
-      .sort((x, y) => x.msRestants - y.msRestants);
-  }, [actifs, produits, tick]);
-
-  const enRetard = echeancier.filter(e => e.msRestants < 0).length;
+  const ouvrirPanne = () => { setPanneError(null); chargerOptions(); setShowPanne(true); };
 
   const formatDelai = (ms) => {
     const abs = Math.abs(ms);
@@ -383,7 +371,7 @@ export default function PageMaintenances() {
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Actualiser
             </button>
             {canDeclarer && (
-              <button onClick={() => { setPanneError(null); setShowPanne(true); }} className="btn btn-error btn-sm rounded-xl gap-2 shadow-lg shadow-error/25 hover:scale-105 transition-all">
+              <button onClick={ouvrirPanne} className="btn btn-error btn-sm rounded-xl gap-2 shadow-lg shadow-error/25 hover:scale-105 transition-all">
                 <AlertTriangle className="w-4 h-4" /> Déclarer une panne
               </button>
             )}
@@ -410,7 +398,7 @@ export default function PageMaintenances() {
         </div>
 
         {/* Échéancier préventif */}
-        {echeancier.length > 0 && (
+        {echeancierTotal > 0 && (
           <div className="bg-base-100 rounded-2xl border border-base-200 shadow-md overflow-hidden">
             <div className="px-5 py-4 border-b border-base-200 flex items-center gap-2">
               <CalendarClock className="w-4 h-4 text-primary" />
@@ -420,7 +408,7 @@ export default function PageMaintenances() {
                   <AlertTriangle className="w-3 h-3" /> {enRetard} en retard
                 </span>
               )}
-              <span className="text-xs font-medium text-base-content/50 ml-auto">{echeancier.length} actif{echeancier.length > 1 ? 's' : ''} suivi{echeancier.length > 1 ? 's' : ''}</span>
+              <span className="text-xs font-medium text-base-content/50 ml-auto">{echeancierTotal} actif{echeancierTotal > 1 ? 's' : ''} suivi{echeancierTotal > 1 ? 's' : ''}</span>
             </div>
             <div className="overflow-x-auto">
               <table className="table table-md w-full">
@@ -437,13 +425,15 @@ export default function PageMaintenances() {
                   {echeancier.slice(0, 12).map(e => {
                     const fmt = (ms) => ms ? new Date(ms).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
                     const UN_JOUR = 86400000;
+                    // Délai restant recalculé à l'affichage (rafraîchi par `tick`)
+                    const msRestants = (e.prochaine || 0) - Date.now();
                     let badge;
-                    if (e.msRestants < 0) {
-                      badge = <span className="inline-flex items-center gap-1 badge badge-sm py-2 px-2.5 rounded-lg font-semibold bg-rose-500/10 text-error border border-rose-500/20"><AlertTriangle className="w-3 h-3" /> En retard de {formatDelai(e.msRestants)}</span>;
-                    } else if (e.msRestants <= UN_JOUR) {
-                      badge = <span className="inline-flex items-center gap-1 badge badge-sm py-2 px-2.5 rounded-lg font-semibold bg-amber-500/10 text-amber-600 border border-amber-500/20"><Clock className="w-3 h-3" /> Dans {formatDelai(e.msRestants)}</span>;
+                    if (msRestants < 0) {
+                      badge = <span className="inline-flex items-center gap-1 badge badge-sm py-2 px-2.5 rounded-lg font-semibold bg-rose-500/10 text-error border border-rose-500/20"><AlertTriangle className="w-3 h-3" /> En retard de {formatDelai(msRestants)}</span>;
+                    } else if (msRestants <= UN_JOUR) {
+                      badge = <span className="inline-flex items-center gap-1 badge badge-sm py-2 px-2.5 rounded-lg font-semibold bg-amber-500/10 text-amber-600 border border-amber-500/20"><Clock className="w-3 h-3" /> Dans {formatDelai(msRestants)}</span>;
                     } else {
-                      badge = <span className="inline-flex items-center gap-1 badge badge-sm py-2 px-2.5 rounded-lg font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"><CheckCircle2 className="w-3 h-3" /> Dans {formatDelai(e.msRestants)}</span>;
+                      badge = <span className="inline-flex items-center gap-1 badge badge-sm py-2 px-2.5 rounded-lg font-semibold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"><CheckCircle2 className="w-3 h-3" /> Dans {formatDelai(msRestants)}</span>;
                     }
                     return (
                       <tr key={e.actif_id} className="border-b border-base-200/60 hover:bg-base-200/30 transition-colors">

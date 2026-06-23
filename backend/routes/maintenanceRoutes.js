@@ -15,6 +15,14 @@ router.use(verifyToken);
 router.get('/', requireRole(['super_admin', 'technicien', 'consultant']), maintenanceController.getAllMaintenances);
 
 /**
+ * @route   GET /api/maintenances/echeancier
+ * @desc    Échéancier préventif calculé côté serveur (top N échéances + totaux)
+ * @access  Super-Admin, Technicien, Consultant
+ * @note    Déclaré AVANT /:id pour ne pas être capturé comme paramètre.
+ */
+router.get('/echeancier', requireRole(['super_admin', 'technicien', 'consultant']), maintenanceController.getEcheancier);
+
+/**
  * @route   GET /api/maintenances/:id
  * @desc    Voir les détails d'un ticket spécifique
  * @access  Super-Admin, Technicien, Consultant

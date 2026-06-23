@@ -58,6 +58,7 @@ const stockRoutes = require('./routes/stockRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const journalRoutes = require('./routes/journalRoutes');
 const messageRoutes = require('./routes/messageRoutes');
+const bonSortieRoutes = require('./routes/bonSortieRoutes');
 
 // ==========================================
 // Montage des routes (End-points API)
@@ -67,6 +68,7 @@ app.use('/api/utilisateurs', utilisateurRoutes);
 app.use('/api/categories', categorieRoutes);
 app.use('/api/fournisseurs', fournisseurRoutes);
 app.use('/api/mouvements', mouvementRoutes);
+app.use('/api/bons-sortie', bonSortieRoutes);
 app.use('/api/actifs', actifRoutes);
 app.use('/api/entrepots', entrepotRoutes);
 app.use('/api/maintenances', maintenanceRoutes);

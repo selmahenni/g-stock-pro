@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import DataTableServer from '../../components/DataTableServer';
 import ExportButtons from '../../components/ExportButtons';
-import FilterSelect from '../../components/FilterSelect';
+import AsyncSelect from '../../components/AsyncSelect';
 import ResourceModal from '../../components/ResourceModal';
 import usePermissions from '../../hooks/usePermissions';
 import usePaginatedResource from '../../hooks/usePaginatedResource';
@@ -40,9 +40,11 @@ export default function PageProduits() {
   };
   const [formData, setFormData] = useState(emptyForm);
 
-  // Listes d'options pour les sélecteurs Catégorie / Fournisseur
+  // Listes d'options pour les sélecteurs Catégorie / Fournisseur du formulaire
   const [categories, setCategories] = useState([]);
   const [fournisseurs, setFournisseurs] = useState([]);
+  // Libellé de la catégorie sélectionnée dans le filtre (recherche serveur)
+  const [categorieFilterLabel, setCategorieFilterLabel] = useState('');
 
   // Ajout rapide (modale secondaire) : 'categorie' | 'fournisseur' | null
   const [quickAdd, setQuickAdd] = useState(null);
@@ -66,10 +68,15 @@ export default function PageProduits() {
     } catch { /* ignore */ }
   };
 
-  useEffect(() => {
-    loadCategories();
-    loadFournisseurs();
-  }, []);
+  // Les options Catégorie / Fournisseur ne sont chargées QU'À L'OUVERTURE du
+  // formulaire produit (création ou édition) — pas au chargement de la page —
+  // pour ne pas tirer ces listes complètes inutilement à l'affichage du catalogue.
+  const [optionsChargees, setOptionsChargees] = useState(false);
+  const chargerOptions = async () => {
+    if (optionsChargees) return;
+    await Promise.all([loadCategories(), loadFournisseurs()]);
+    setOptionsChargees(true);
+  };
 
   const canCreate = canAccess('produits', 'create');
   const canUpdate = canAccess('produits', 'update');
@@ -89,6 +96,7 @@ export default function PageProduits() {
   // Ouvre la modale d'édition pré-remplie avec les données du produit
   const openEdit = (produit) => {
     setFormError(null);
+    chargerOptions();
     // Valeur d'intervalle (nouveau format) avec repli sur l'ancien champ « jours »
     const valeur = produit.intervalle_valeur ?? produit.intervalle_maintenance_jours ?? '';
     // Dérivation : maintenable = préventive (avec intervalle) ; sinon non maintenable.
@@ -370,7 +378,7 @@ export default function PageProduits() {
               <RefreshCw className={`w-4 h-4 ${list.isFetching ? 'animate-spin' : ''}`} /> Actualiser
             </button>
             {canCreate && (
-              <button onClick={() => { setFormError(null); setEditId(null); setFormData(emptyForm); setShowCreateModal(true); }} className="btn btn-primary btn-sm rounded-xl gap-2 shadow-lg shadow-primary/25 hover:scale-105 transition-all">
+              <button onClick={() => { setFormError(null); setEditId(null); setFormData(emptyForm); chargerOptions(); setShowCreateModal(true); }} className="btn btn-primary btn-sm rounded-xl gap-2 shadow-lg shadow-primary/25 hover:scale-105 transition-all">
                 <Plus className="w-4 h-4" /> Ajouter un produit
               </button>
             )}
@@ -401,12 +409,18 @@ export default function PageProduits() {
             searchPlaceholder="Rechercher par libellé, SKU..."
             toolbar={
               <div className="flex items-center gap-2 flex-wrap">
-                <FilterSelect
+                <AsyncSelect
                   value={list.filters.categorie_id}
-                  onChange={(v) => list.setFilters({ ...list.filters, categorie_id: v })}
-                  options={categories.map(c => ({ value: c.id, label: c.nom }))}
+                  selectedLabel={categorieFilterLabel}
+                  onChange={(v, label) => { setCategorieFilterLabel(label); list.setFilters({ ...list.filters, categorie_id: v }); }}
+                  fetchOptions={async (q) => {
+                    const res = await fetch(`http://localhost:5000/api/categories?limit=20${q ? `&search=${encodeURIComponent(q)}` : ''}`, { credentials: 'include' });
+                    if (!res.ok) return [];
+                    const d = await res.json();
+                    return (d.categories || []).map(c => ({ value: c.id, label: c.nom }));
+                  }}
                   allLabel="Toutes les catégories"
-                  title="Filtrer par catégorie"
+                  placeholder="Rechercher une catégorie…"
                 />
                 <ExportButtons filename="produits" title="Catalogue Produits" columns={exportColumns} fetchRows={list.fetchAll} formats={['excel']} />
               </div>

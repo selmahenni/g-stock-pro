@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import Link from 'next/link';
 import DataTableServer from '../../components/DataTableServer';
 import FilterSelect from '../../components/FilterSelect';
 import usePaginatedResource from '../../hooks/usePaginatedResource';
@@ -39,31 +40,35 @@ export default function PageMouvements() {
   });
   const { canAccess } = usePermissions();
 
+  // Les options du formulaire (actifs/produits/entrepôts) ne sont chargées
+  // QU'À L'OUVERTURE de la modale — pas au chargement de la page — pour ne pas
+  // tirer des listes complètes inutilement à l'affichage de l'historique.
+  const [optionsChargees, setOptionsChargees] = useState(false);
+  const chargerOptions = async () => {
+    if (optionsChargees) return;
+    try {
+      const [actifsRes, produitsRes, entrepotsRes] = await Promise.all([
+        fetch('http://localhost:5000/api/actifs?limit=500', { credentials: 'include' }),
+        fetch('http://localhost:5000/api/produits?limit=500', { credentials: 'include' }),
+        fetch('http://localhost:5000/api/entrepots', { credentials: 'include' }),
+      ]);
+      if (actifsRes.ok) {
+        const data = await actifsRes.json();
+        setActifs(data.actifs || []);
+      }
+      if (produitsRes.ok) {
+        const data = await produitsRes.json();
+        setProduits(data.produits || []);
+      }
+      if (entrepotsRes.ok) {
+        const data = await entrepotsRes.json();
+        setEntrepots(Array.isArray(data) ? data : (data.entrepots || []));
+      }
+      setOptionsChargees(true);
+    } catch {}
+  };
 
-  useEffect(() => {
-    async function fetchOptions() {
-      try {
-        const [actifsRes, produitsRes, entrepotsRes] = await Promise.all([
-          fetch('http://localhost:5000/api/actifs?limit=500', { credentials: 'include' }),
-          fetch('http://localhost:5000/api/produits?limit=500', { credentials: 'include' }),
-          fetch('http://localhost:5000/api/entrepots', { credentials: 'include' }),
-        ]);
-        if (actifsRes.ok) {
-          const data = await actifsRes.json();
-          setActifs(data.actifs || []);
-        }
-        if (produitsRes.ok) {
-          const data = await produitsRes.json();
-          setProduits(data.produits || []);
-        }
-        if (entrepotsRes.ok) {
-          const data = await entrepotsRes.json();
-          setEntrepots(Array.isArray(data) ? data : (data.entrepots || []));
-        }
-      } catch {}
-    }
-    fetchOptions();
-  }, []);
+  const ouvrirAjout = () => { setFormError(null); chargerOptions(); setShowCreateModal(true); };
 
   // Réinitialise l'actif sélectionné si le filtre produit ou le type de mouvement change
   const handleFormChange = (next) => {
@@ -240,7 +245,12 @@ export default function PageMouvements() {
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Actualiser
             </button>
             {canCreate && (
-              <button onClick={() => { setFormError(null); setShowCreateModal(true); }} className="btn btn-primary btn-sm rounded-xl gap-2 shadow-lg shadow-primary/25 hover:scale-105 transition-all">
+              <Link href="/bons-sortie" className="btn btn-outline btn-primary btn-sm rounded-xl gap-2 hover:scale-105 transition-all" title="Sortir plusieurs actifs à la fois">
+                <FileDown className="w-4 h-4" /> Bon de sortie (multi)
+              </Link>
+            )}
+            {canCreate && (
+              <button onClick={ouvrirAjout} className="btn btn-primary btn-sm rounded-xl gap-2 shadow-lg shadow-primary/25 hover:scale-105 transition-all">
                 <Plus className="w-4 h-4" /> Nouveau mouvement
               </button>
             )}

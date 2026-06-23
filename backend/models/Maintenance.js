@@ -64,6 +64,68 @@ class Maintenance {
   }
 
   /**
+   * Échéancier préventif (calculé CÔTÉ SERVEUR) : pour chaque actif d'un produit
+   * maintenable, la prochaine échéance = `date_prochaine_preventive` si présente,
+   * sinon `cree_le + intervalle` (nouveau format valeur/unité, ou ancien « jours »).
+   * Ne renvoie QUE les `limit` échéances les plus proches, plus les totaux globaux
+   * (nombre d'actifs suivis + nombre en retard) pour l'en-tête — sans tout charger.
+   * @param {Object} opts - { limit }
+   * @returns {Promise<{rows: Array, total: number, enRetard: number}>}
+   */
+  static async getEcheancier({ limit = 12 } = {}) {
+    // CTE commune : calcule la prochaine échéance par actif éligible.
+    const cte = `
+      WITH echeances AS (
+        SELECT
+          a.id           AS actif_id,
+          a.numero_serie AS numero_serie,
+          p.libelle      AS produit,
+          COALESCE(
+            a.date_prochaine_preventive,
+            CASE
+              WHEN p.intervalle_valeur IS NOT NULL AND p.intervalle_unite IS NOT NULL
+                THEN a.cree_le + (p.intervalle_valeur * (CASE p.intervalle_unite
+                      WHEN 'minute' THEN INTERVAL '1 minute'
+                      WHEN 'heure'  THEN INTERVAL '1 hour'
+                      WHEN 'jour'   THEN INTERVAL '1 day'
+                      WHEN 'mois'   THEN INTERVAL '1 month'
+                      WHEN 'annee'  THEN INTERVAL '1 year'
+                      ELSE INTERVAL '1 day' END))
+              WHEN p.intervalle_maintenance_jours IS NOT NULL
+                THEN a.cree_le + (p.intervalle_maintenance_jours * INTERVAL '1 day')
+              ELSE NULL
+            END
+          ) AS prochaine
+        FROM actifs a
+        JOIN produits p ON a.produit_id = p.id
+        WHERE a.date_prochaine_preventive IS NOT NULL
+           OR (p.est_maintenable = true AND (
+                (p.intervalle_valeur IS NOT NULL AND p.intervalle_unite IS NOT NULL)
+                OR p.intervalle_maintenance_jours IS NOT NULL))
+      )`;
+
+    const { rows } = await pool.query(
+      `${cte}
+       SELECT actif_id, numero_serie, produit, prochaine
+       FROM echeances
+       WHERE prochaine IS NOT NULL
+       ORDER BY prochaine ASC
+       LIMIT $1`,
+      [limit]
+    );
+
+    const { rows: cnt } = await pool.query(
+      `${cte}
+       SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE prochaine < NOW())::int AS en_retard
+       FROM echeances
+       WHERE prochaine IS NOT NULL`
+    );
+
+    return { rows, total: cnt[0].total, enRetard: cnt[0].en_retard };
+  }
+
+  /**
    * Historique des tickets d'un actif (le plus récent d'abord).
    * @param {number|string} actifId
    * @returns {Promise<Array>}

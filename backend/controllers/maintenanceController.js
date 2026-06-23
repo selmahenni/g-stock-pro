@@ -45,6 +45,22 @@ exports.getAllMaintenances = async (req, res) => {
 };
 
 /**
+ * @function getEcheancier
+ * @description Échéancier préventif calculé côté serveur : ne renvoie que les
+ * `limit` échéances les plus proches + les totaux (suivis / en retard).
+ */
+exports.getEcheancier = async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 12, 50);
+    const { rows, total, enRetard } = await Maintenance.getEcheancier({ limit });
+    res.status(200).json({ echeancier: rows, total, en_retard: enRetard });
+  } catch (error) {
+    console.error('Erreur (getEcheancier):', error);
+    res.status(500).json({ message: 'Erreur serveur interne' });
+  }
+};
+
+/**
  * @function getMaintenanceById
  * @description Détail d'un ticket de maintenance.
  */
