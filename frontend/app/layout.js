@@ -6,13 +6,6 @@ export const metadata = {
   title: 'G-Stock Pro — Gestion de Parc & Stock',
   description: 'Solution d\'élite pour la gestion de parc informatique, la traçabilité des consommables et le contrôle d\'accès par rôles (RBAC).',
   manifest: '/manifest.json',
-  themeColor: '#4f46e5',
-  viewport: {
-    width: 'device-width',
-    initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
-  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
@@ -22,6 +15,16 @@ export const metadata = {
     icon: '/icons/icon-192.svg',
     apple: '/icons/icon-192.svg',
   },
+};
+
+// Next.js 14 (App Router) : themeColor et viewport doivent être exportés
+// séparément via `viewport`, et non dans `metadata` (sinon avertissements au build).
+export const viewport = {
+  themeColor: '#4f46e5',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({ children }) {

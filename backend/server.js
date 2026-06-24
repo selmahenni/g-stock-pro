@@ -16,11 +16,13 @@ const app = express();
 // 1. Sécurise les en-têtes HTTP contre les vulnérabilités courantes
 app.use(helmet()); 
 
-// 2. Configure CORS pour autoriser le frontend Next.js et l'échange sécurisé de cookies
+// 2. Configure CORS pour autoriser le frontend Next.js et l'échange sécurisé de cookies.
+//    L'URL du front provient de l'environnement (FRONTEND_URL) → configurable selon
+//    le déploiement (Vercel, etc.). Repli sur localhost:3000 pour le développement local.
 app.use(cors({
-  origin: 'http://localhost:3000', // URL de ton application Next.js
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true                // Permet l'envoi et la réception des cookies HTTP-Only
-}));   
+}));
 
 // 3. Permet de lire le JSON dans le corps des requêtes (req.body)
 app.use(express.json()); 
