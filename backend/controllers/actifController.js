@@ -5,6 +5,18 @@ const { ajusterStock, verifierSeuilCritique } = require('../services/stockServic
 const maintenanceService = require('../services/maintenanceService');
 
 /**
+ * Vérifie qu'un entrepôt existe et est ACTIF avant d'y stocker des actifs.
+ * @param {number|string} entrepotId
+ * @returns {Promise<{ok: boolean, message?: string}>}
+ */
+async function entrepotActif(entrepotId) {
+  const { rows } = await pool.query('SELECT est_actif FROM entrepots WHERE id = $1', [entrepotId]);
+  if (rows.length === 0) return { ok: false, message: 'Entrepôt introuvable.' };
+  if (rows[0].est_actif === false) return { ok: false, message: 'Cet entrepôt est inactif : impossible d\'y stocker des actifs.' };
+  return { ok: true };
+}
+
+/**
  * @function getAllActifs
  * @description Récupère tout l'inventaire physique avec un système de pagination.
  * @param {Object} req - Objet de requête Express (accepte ?page=X&limit=Y).
@@ -89,8 +101,13 @@ exports.createActif = async (req, res) => {
       });
     }
 
-    // Traçabilité : auteur de la création depuis le token
-    const nouvelActif = await Actif.create({ ...req.body, cree_par: req.utilisateur?.id ?? null });
+    // L'entrepôt doit être actif pour pouvoir y stocker un actif.
+    const verifEntrepot = await entrepotActif(entrepot_id);
+    if (!verifEntrepot.ok) return res.status(400).json({ message: verifEntrepot.message });
+
+    // Traçabilité : auteur depuis le token. Tout nouvel actif entre EN STOCK
+    // (le statut évolue ensuite via les mouvements / la maintenance) → cohérence du stock.
+    const nouvelActif = await Actif.create({ ...req.body, statut: 'en_stock', cree_par: req.utilisateur?.id ?? null });
 
     // Toute création d'actif = une entrée physique : on incrémente le stock du produit
     // (non bloquant : une erreur de stock ne doit pas annuler l'enregistrement de l'actif)
@@ -227,7 +244,7 @@ exports.deleteActif = async (req, res) => {
  * @param {Object} res - Objet de réponse Express.
  */
 exports.createActifsBatch = async (req, res) => {
-  const { produit_id, entrepot_id, numeros_serie, emplacement, prix_unitaire, statut } = req.body;
+  const { produit_id, entrepot_id, numeros_serie, emplacement, prix_unitaire } = req.body;
 
   if (!produit_id || !entrepot_id) {
     return res.status(400).json({ message: 'produit_id et entrepot_id sont obligatoires.' });
@@ -235,6 +252,10 @@ exports.createActifsBatch = async (req, res) => {
   if (!Array.isArray(numeros_serie)) {
     return res.status(400).json({ message: 'numeros_serie doit être un tableau.' });
   }
+
+  // L'entrepôt doit être actif pour pouvoir y stocker des actifs.
+  const verifEntrepot = await entrepotActif(entrepot_id);
+  if (!verifEntrepot.ok) return res.status(400).json({ message: verifEntrepot.message });
 
   // Nettoyage : trim + suppression des entrées vides
   const serials = numeros_serie.map((s) => String(s).trim()).filter(Boolean);
@@ -259,9 +280,9 @@ exports.createActifsBatch = async (req, res) => {
     for (const ns of serials) {
       const { rows } = await client.query(
         `INSERT INTO actifs (produit_id, numero_serie, entrepot_id, emplacement, utilisateur_affecte_id, statut, prix_unitaire, cree_par)
-         VALUES ($1, $2, $3, $4, $5, COALESCE($6, 'en_stock'), $7, $8)
+         VALUES ($1, $2, $3, $4, $5, 'en_stock', $6, $7)
          RETURNING *`,
-        [produit_id, ns, entrepot_id, emplacement || null, null, statut || null, prixUnit, creePar]
+        [produit_id, ns, entrepot_id, emplacement || null, null, prixUnit, creePar]
       );
       actifsCreés.push(rows[0]);
     }

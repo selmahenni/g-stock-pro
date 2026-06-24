@@ -28,12 +28,14 @@ export default function PageActifs() {
   const list = usePaginatedResource('actifs', 'actifs', { pageSize: 10 });
   const actifs = list.rows;
   const [produits, setProduits] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [entrepots, setEntrepots] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState(null);
   const [formData, setFormData] = useState({
+    categorie_filtre: '', // filtre d'aide à la saisie (non envoyé au backend)
     produit_id: '',
     numero_serie: '',
     entrepot_id: '',
@@ -64,12 +66,14 @@ export default function PageActifs() {
   const chargerOptions = async () => {
     if (optionsChargees) return;
     try {
-      const [produitsRes, entrepotsRes] = await Promise.all([
+      const [produitsRes, entrepotsRes, categoriesRes] = await Promise.all([
         fetch(process.env.NEXT_PUBLIC_API_URL + '/api/produits?limit=1000', { credentials: 'include' }),
         fetch(process.env.NEXT_PUBLIC_API_URL + '/api/entrepots', { credentials: 'include' }),
+        fetch(process.env.NEXT_PUBLIC_API_URL + '/api/categories?limit=500', { credentials: 'include' }),
       ]);
       if (produitsRes.ok) { const data = await produitsRes.json(); setProduits(data.produits || []); }
       if (entrepotsRes.ok) { const data = await entrepotsRes.json(); setEntrepots(Array.isArray(data) ? data : (data.entrepots || [])); }
+      if (categoriesRes.ok) { const data = await categoriesRes.json(); setCategories(Array.isArray(data) ? data : (data.categories || [])); }
       setOptionsChargees(true);
     } catch { /* réessaiera à la prochaine ouverture */ }
   };
@@ -126,7 +130,7 @@ export default function PageActifs() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Erreur lors de la création de l\'actif');
       setShowCreateModal(false);
-      setFormData({ produit_id: '', numero_serie: '', entrepot_id: '', emplacement: '', prix_unitaire: '', statut: 'en_stock' });
+      setFormData({ categorie_filtre: '', produit_id: '', numero_serie: '', entrepot_id: '', emplacement: '', prix_unitaire: '', statut: 'en_stock' });
       list.refetch();
     } catch (err) {
       setFormError(err.message);
@@ -188,7 +192,7 @@ export default function PageActifs() {
     setBatchQuantity('');
     setBatchResult(null);
     setFormError(null);
-    setFormData({ produit_id: '', numero_serie: '', entrepot_id: '', emplacement: '', prix_unitaire: '', statut: 'en_stock' });
+    setFormData({ categorie_filtre: '', produit_id: '', numero_serie: '', entrepot_id: '', emplacement: '', prix_unitaire: '', statut: 'en_stock' });
   };
 
   // ── Édition ─────────────────────────────────────────────────────────
@@ -318,9 +322,15 @@ export default function PageActifs() {
     },
   ];
 
+  // Produits restreints à la catégorie choisie (aide à la saisie). Vide = tous.
+  const produitOption = (p) => ({ value: p.id, label: `${p.libelle}${p.sku ? ` - ${p.sku}` : ''}` });
+  const produitsFiltres = formData.categorie_filtre
+    ? produits.filter(p => String(p.categorie_id) === String(formData.categorie_filtre))
+    : produits;
+
   // ── Champs partagés entre création et édition ──────────────────────
   const commonFields = [
-    { name: 'produit_id', label: 'Produit', type: 'select', required: true, placeholder: 'Sélectionner un produit', options: produits.map(p => ({ value: p.id, label: `${p.libelle}${p.sku ? ` - ${p.sku}` : ''}` })) },
+    { name: 'produit_id', label: 'Produit', type: 'select', required: true, placeholder: 'Sélectionner un produit', options: produits.map(produitOption) },
     { name: 'entrepot_id', label: 'Entrepôt', type: 'select', required: true, placeholder: 'Sélectionner un entrepôt', options: entrepots.map(e => ({ value: e.id, label: e.nom })) },
     { name: 'emplacement', label: 'Emplacement', placeholder: 'Rayon A3' },
     { name: 'prix_unitaire', label: 'Prix unitaire / coût d\'acquisition (DA)', type: 'number', min: 0, step: '0.01', placeholder: '0.00' },
@@ -332,11 +342,31 @@ export default function PageActifs() {
     ] },
   ];
 
+  // Champ « catégorie (filtre) » : non envoyé au backend, ne sert qu'à réduire la liste de produits.
+  const categorieFiltreField = {
+    name: 'categorie_filtre', label: 'Catégorie (filtre)', type: 'select',
+    placeholder: 'Toutes les catégories',
+    options: categories.map(c => ({ value: c.id, label: c.nom })),
+  };
+
+  // Seuls les entrepôts ACTIFS peuvent recevoir de nouveaux actifs.
+  const entrepotsActifs = entrepots.filter(e => e.est_actif !== false);
+
   const createFieldsSingle = [
-    commonFields[0], // produit_id
+    categorieFiltreField,
+    { ...commonFields[0], options: produitsFiltres.map(produitOption) }, // produit filtré par catégorie
     { name: 'numero_serie', label: 'Numéro de série', required: true, placeholder: 'SN-2026-001' },
-    ...commonFields.slice(1),
+    // entrepôt restreint aux actifs ; statut volontairement absent (toujours « en stock » à la création)
+    { name: 'entrepot_id', label: 'Entrepôt', type: 'select', required: true, placeholder: 'Sélectionner un entrepôt', options: entrepotsActifs.map(e => ({ value: e.id, label: e.nom })) },
+    commonFields[2], // emplacement
+    commonFields[3], // prix_unitaire
   ];
+
+  // À la création unitaire : si la catégorie change, on réinitialise le produit sélectionné.
+  const handleSingleChange = (next) => {
+    if (next.categorie_filtre !== formData.categorie_filtre) next = { ...next, produit_id: '' };
+    setFormData(next);
+  };
 
   const editFields = [
     commonFields[0], // produit_id
@@ -456,7 +486,7 @@ export default function PageActifs() {
           error={formError}
           loading={formLoading}
           submitLabel="Créer"
-          onChange={setFormData}
+          onChange={handleSingleChange}
           onClose={resetCreateModal}
           onSubmit={handleCreateSingle}
           headerExtra={modeToggle}
@@ -495,20 +525,28 @@ export default function PageActifs() {
               </div>
             ) : (
               <form onSubmit={handleCreateBatch} className="space-y-4">
+                {/* Catégorie (filtre d'aide à la saisie) */}
+                <div className="form-control">
+                  <label className="label"><span className="label-text font-semibold">Catégorie (filtre)</span></label>
+                  <select className="select select-bordered rounded-xl w-full" value={formData.categorie_filtre} onChange={(e) => setFormData({ ...formData, categorie_filtre: e.target.value, produit_id: '' })}>
+                    <option value="">Toutes les catégories</option>
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                  </select>
+                </div>
                 {/* Produit */}
                 <div className="form-control">
                   <label className="label"><span className="label-text font-semibold">Produit</span></label>
                   <select required className="select select-bordered rounded-xl w-full" value={formData.produit_id} onChange={(e) => setFormData({ ...formData, produit_id: e.target.value })}>
                     <option value="">Sélectionner un produit</option>
-                    {produits.map(p => <option key={p.id} value={p.id}>{p.libelle}{p.sku ? ` - ${p.sku}` : ''}</option>)}
+                    {produitsFiltres.map(p => <option key={p.id} value={p.id}>{p.libelle}{p.sku ? ` - ${p.sku}` : ''}</option>)}
                   </select>
                 </div>
-                {/* Entrepôt */}
+                {/* Entrepôt (actifs uniquement) */}
                 <div className="form-control">
                   <label className="label"><span className="label-text font-semibold">Entrepôt</span></label>
                   <select required className="select select-bordered rounded-xl w-full" value={formData.entrepot_id} onChange={(e) => setFormData({ ...formData, entrepot_id: e.target.value })}>
                     <option value="">Sélectionner un entrepôt</option>
-                    {entrepots.map(e => <option key={e.id} value={e.id}>{e.nom}</option>)}
+                    {entrepotsActifs.map(e => <option key={e.id} value={e.id}>{e.nom}</option>)}
                   </select>
                 </div>
                 {/* Emplacement */}
@@ -521,16 +559,7 @@ export default function PageActifs() {
                   <label className="label"><span className="label-text font-semibold">Prix unitaire (DA)</span></label>
                   <input type="number" min="0" step="0.01" placeholder="0.00" className="input input-bordered rounded-xl w-full" value={formData.prix_unitaire} onChange={(e) => setFormData({ ...formData, prix_unitaire: e.target.value })} />
                 </div>
-                {/* Statut */}
-                <div className="form-control">
-                  <label className="label"><span className="label-text font-semibold">Statut</span></label>
-                  <select className="select select-bordered rounded-xl w-full" value={formData.statut} onChange={(e) => setFormData({ ...formData, statut: e.target.value })}>
-                    <option value="en_stock">En stock</option>
-                    <option value="affecte">Affecté</option>
-                    <option value="maintenance">Maintenance</option>
-                    <option value="rebut">Rebut</option>
-                  </select>
-                </div>
+                {/* Statut : pas de choix à la création — tout nouvel actif entre « en stock ». */}
 
                 {/* Toggle type batch */}
                 <div className="divider text-xs text-base-content/50 font-semibold uppercase">Numéros de série</div>

@@ -109,14 +109,30 @@ class Produit {
   }
 
   /**
-   * Supprime un produit par son ID.
+   * Supprime un produit par son ID (en transaction).
+   * Les actifs liés (et leur historique : mouvements, maintenances…) sont supprimés
+   * en cascade par la base. En revanche les lignes de `stocks` (quantités agrégées par
+   * entrepôt) ont une contrainte NO ACTION : on les retire explicitement d'abord, sinon
+   * la suppression du produit échoue alors même qu'il n'a plus aucun actif.
    * @param {number} id - L'identifiant du produit.
    * @returns {Promise<boolean>} True si supprimé, False sinon.
    */
   static async delete(id) {
-    const query = 'DELETE FROM produits WHERE id = $1 RETURNING *';
-    const { rows } = await pool.query(query, [id]);
-    return rows.length > 0;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // Retire les quantités de stock agrégées (sans valeur une fois le produit supprimé)
+      await client.query('DELETE FROM stocks WHERE produit_id = $1', [id]);
+      // Supprime le produit ; les actifs + leur historique partent en cascade
+      const { rows } = await client.query('DELETE FROM produits WHERE id = $1 RETURNING id', [id]);
+      await client.query('COMMIT');
+      return rows.length > 0;
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 }
 

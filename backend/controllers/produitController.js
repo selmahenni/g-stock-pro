@@ -116,6 +116,12 @@ exports.deleteProduit = async (req, res) => {
     res.status(200).json({ message: 'Produit supprimé avec succès' });
   } catch (error) {
     console.error('Erreur lors de la suppression du produit:', error);
+    // Violation de contrainte de clé étrangère : un élément lié empêche la suppression.
+    if (error.code === '23503') {
+      return res.status(409).json({
+        message: 'Impossible de supprimer ce produit : des éléments y sont encore rattachés.',
+      });
+    }
     res.status(500).json({ message: 'Erreur lors de la suppression' });
   }
 };
