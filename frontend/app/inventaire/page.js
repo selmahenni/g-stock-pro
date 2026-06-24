@@ -50,7 +50,28 @@ export default function PageInventaire() {
         </div>
       ),
     },
-    { accessorKey: 'entrepot_nom', header: 'Entrepôt', cell: (info) => <span className="text-sm">{info.getValue() || '—'}</span> },
+    {
+      accessorKey: 'entrepot_nom',
+      header: 'Entrepôt',
+      cell: (info) => {
+        const r = info.row.original;
+        // Entrepôt désactivé alors qu'il contient encore des actifs → à évacuer.
+        const aEvacuer = r.entrepot_actif === false && (r.quantite ?? 0) > 0;
+        return (
+          <div className="flex flex-col gap-1 items-start">
+            <span className="text-sm">{info.getValue() || '—'}</span>
+            {aEvacuer && (
+              <span
+                className="inline-flex items-center gap-1 badge badge-sm py-2 px-2 rounded-lg font-semibold bg-rose-500/10 text-error border border-rose-500/20 whitespace-nowrap"
+                title="Cet entrepôt est désactivé : transférez ou sortez ces actifs au plus vite."
+              >
+                <AlertTriangle className="w-3 h-3" /> Entrepôt inactif — à évacuer
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
     { accessorKey: 'numero_lot', header: 'N° Lot', cell: (info) => <span className="font-mono text-xs text-base-content/60">{info.getValue() || '—'}</span> },
     {
       accessorKey: 'numeros_serie',

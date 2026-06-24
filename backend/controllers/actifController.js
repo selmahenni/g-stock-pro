@@ -110,9 +110,11 @@ exports.createActif = async (req, res) => {
     const nouvelActif = await Actif.create({ ...req.body, statut: 'en_stock', cree_par: req.utilisateur?.id ?? null });
 
     // Toute création d'actif = une entrée physique : on incrémente le stock du produit
-    // (non bloquant : une erreur de stock ne doit pas annuler l'enregistrement de l'actif)
+    // (non bloquant : une erreur de stock ne doit pas annuler l'enregistrement de l'actif).
+    // Le stock monte → on ré-arme l'alerte de seuil si elle était active.
     ajusterStock(nouvelActif.produit_id, nouvelActif.entrepot_id, +1)
-      .catch(err => console.error('❌ Erreur ajustement stock (création actif):', err));
+      .then(() => verifierSeuilCritique(nouvelActif.produit_id, nouvelActif.entrepot_id))
+      .catch(err => console.error('❌ Stock / ré-armement seuil (création actif):', err));
 
     // Initialise l'échéance de maintenance préventive selon la règle du produit (non bloquant)
     maintenanceService.initialiserPreventive(nouvelActif.id, new Date(nouvelActif.cree_le || Date.now()))
@@ -306,6 +308,10 @@ exports.createActifsBatch = async (req, res) => {
     }
 
     await client.query('COMMIT');
+
+    // Le stock du produit a augmenté (+N) → ré-armement de l'alerte de seuil si besoin (non bloquant).
+    verifierSeuilCritique(produit_id, entrepot_id)
+      .catch(err => console.error('❌ Ré-armement seuil (lot d\'actifs):', err));
 
     // 4. Valeur totale du lot = prix unitaire × nombre d'actifs
     const valeurTotale = (prixUnit || 0) * nombre;

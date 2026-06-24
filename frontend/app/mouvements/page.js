@@ -26,11 +26,13 @@ export default function PageMouvements() {
   const error = list.isError ? (list.error?.message || 'Erreur de chargement.') : null;
   const [actifs, setActifs] = useState([]);
   const [produits, setProduits] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [entrepots, setEntrepots] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState(null);
   const [formData, setFormData] = useState({
+    categorie_filtre: '', // filtre uniquement (non envoyé) : restreint la liste de produits
     produit_id: '',      // filtre uniquement (non envoyé) : restreint la liste d'actifs
     actif_id: '',
     type_mouvement: 'entree',
@@ -47,10 +49,11 @@ export default function PageMouvements() {
   const chargerOptions = async () => {
     if (optionsChargees) return;
     try {
-      const [actifsRes, produitsRes, entrepotsRes] = await Promise.all([
+      const [actifsRes, produitsRes, entrepotsRes, categoriesRes] = await Promise.all([
         fetch(process.env.NEXT_PUBLIC_API_URL + '/api/actifs?limit=500', { credentials: 'include' }),
         fetch(process.env.NEXT_PUBLIC_API_URL + '/api/produits?limit=500', { credentials: 'include' }),
         fetch(process.env.NEXT_PUBLIC_API_URL + '/api/entrepots', { credentials: 'include' }),
+        fetch(process.env.NEXT_PUBLIC_API_URL + '/api/categories?limit=500', { credentials: 'include' }),
       ]);
       if (actifsRes.ok) {
         const data = await actifsRes.json();
@@ -64,19 +67,32 @@ export default function PageMouvements() {
         const data = await entrepotsRes.json();
         setEntrepots(Array.isArray(data) ? data : (data.entrepots || []));
       }
+      if (categoriesRes.ok) {
+        const data = await categoriesRes.json();
+        setCategories(Array.isArray(data) ? data : (data.categories || []));
+      }
       setOptionsChargees(true);
     } catch {}
   };
 
   const ouvrirAjout = () => { setFormError(null); chargerOptions(); setShowCreateModal(true); };
 
-  // Réinitialise l'actif sélectionné si le filtre produit ou le type de mouvement change
+  // Réinitialise la sélection en cascade quand un filtre amont change :
+  //  - catégorie change  → on vide le produit (et donc l'actif),
+  //  - produit / type change → on vide l'actif.
   const handleFormChange = (next) => {
-    if (next.produit_id !== formData.produit_id || next.type_mouvement !== formData.type_mouvement) {
+    if (next.categorie_filtre !== formData.categorie_filtre) {
+      next = { ...next, produit_id: '', actif_id: '' };
+    } else if (next.produit_id !== formData.produit_id || next.type_mouvement !== formData.type_mouvement) {
       next = { ...next, actif_id: '' };
     }
     setFormData(next);
   };
+
+  // Produits restreints à la catégorie choisie (aide à la saisie). Vide = tous.
+  const produitsFiltres = formData.categorie_filtre
+    ? produits.filter(p => String(p.categorie_id) === String(formData.categorie_filtre))
+    : produits;
 
   // Actifs « disponibles » selon le type de mouvement et le filtre produit :
   //  - sortie : uniquement les actifs en stock,
@@ -130,7 +146,7 @@ export default function PageMouvements() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Erreur lors de la création du mouvement');
       setShowCreateModal(false);
-      setFormData({ produit_id: '', actif_id: '', type_mouvement: 'entree', destinataire: '', entrepot_destination_id: '', notes: '' });
+      setFormData({ categorie_filtre: '', produit_id: '', actif_id: '', type_mouvement: 'entree', destinataire: '', entrepot_destination_id: '', notes: '' });
       list.refetch();
     } catch (err) {
       setFormError(err.message);
@@ -325,8 +341,12 @@ export default function PageMouvements() {
               { value: 'transfert', label: 'Transfert (d\'un entrepôt à un autre)' },
             ] },
             {
+              name: 'categorie_filtre', label: 'Catégorie (filtre)', type: 'select', placeholder: 'Toutes les catégories',
+              options: categories.map(c => ({ value: c.id, label: c.nom })),
+            },
+            {
               name: 'produit_id', label: 'Produit (filtre)', type: 'select', placeholder: 'Tous les produits',
-              options: produits.map(p => ({ value: p.id, label: `${p.libelle}${p.sku ? ` - ${p.sku}` : ''}` })),
+              options: produitsFiltres.map(p => ({ value: p.id, label: `${p.libelle}${p.sku ? ` - ${p.sku}` : ''}` })),
             },
             {
               name: 'actif_id', label: formData.type_mouvement === 'transfert' ? 'Actif à transférer' : 'Actif disponible', type: 'select', required: true,

@@ -44,6 +44,7 @@ class Stock {
       `SELECT s.id, s.produit_id, s.entrepot_id, s.numero_lot, s.quantite, s.mis_a_jour_le,
               p.libelle AS produit_libelle, p.sku, p.stock_minimum, p.stock_critique,
               e.nom AS entrepot_nom,
+              e.est_actif AS entrepot_actif,
               (SELECT string_agg(a.numero_serie, ', ' ORDER BY a.numero_serie)
                  FROM actifs a
                  WHERE a.produit_id = s.produit_id AND a.entrepot_id = s.entrepot_id

@@ -124,9 +124,11 @@ exports.createMouvement = async (req, res) => {
         await client.query('UPDATE actifs SET entrepot_id = $1 WHERE id = $2', [destination, actif_id]);
         await client.query('COMMIT');
 
-        // Le stock de la SOURCE a baissé → vérification du seuil critique (non bloquant).
+        // Source -1 → vérif seuil ; Destination +1 → ré-armement de l'alerte (non bloquant).
         verifierSeuilCritique(infoActif.produit_id, source)
-          .catch(err => console.error('❌ Vérif seuil critique (transfert):', err));
+          .catch(err => console.error('❌ Vérif seuil critique (transfert source):', err));
+        verifierSeuilCritique(infoActif.produit_id, destination)
+          .catch(err => console.error('❌ Ré-armement seuil (transfert destination):', err));
 
         return res.status(201).json({ message: 'Transfert effectué avec succès.', mouvement: ins[0] });
       } catch (err) {

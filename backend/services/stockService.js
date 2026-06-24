@@ -42,38 +42,52 @@ async function ajusterStock(produitId, entrepotId, delta, db = pool) {
 
 /**
  * @function verifierSeuilCritique
- * @description Vérifie le niveau de stock d'un produit dans un entrepôt et déclenche
- * l'alerte de seuil critique (notif + e-mail, ciblage géré par notificationService) si
- * la quantité est tombée à/sous le seuil critique du produit. Source UNIQUE de l'alerte,
- * appelée après toute baisse de stock (sortie de mouvement, suppression d'actif…).
+ * @description Surveille le niveau de stock d'un produit dans un entrepôt et gère
+ * l'alerte de seuil critique SANS SPAM : l'alerte (notif + e-mail) n'est envoyée
+ * qu'UNE fois, au moment où le stock FRANCHIT le seuil (passage au-dessous). Un
+ * drapeau `stocks.alerte_seuil_envoyee` mémorise l'état ; il est remis à zéro dès
+ * que le stock repasse au-dessus du seuil → ré-armement pour la prochaine fois.
+ * À appeler après TOUT mouvement de stock (baisse comme hausse) pour que l'état reste juste.
  *
  * @param {number} produitId
  * @param {number} entrepotId
  * @param {Object} [db=pool] - Connexion (passer un client pour rester dans une transaction).
- * @returns {Promise<boolean>} true si une alerte a été déclenchée, false sinon.
+ * @returns {Promise<boolean>} true si une alerte vient d'être déclenchée, false sinon.
  */
 async function verifierSeuilCritique(produitId, entrepotId, db = pool) {
   if (!produitId || !entrepotId) return false;
 
   const { rows } = await db.query(
-    `SELECT p.libelle, p.stock_critique, s.quantite
+    `SELECT s.id, p.libelle, p.stock_critique, s.quantite, s.alerte_seuil_envoyee
      FROM stocks s
      JOIN produits p ON s.produit_id = p.id
      WHERE s.produit_id = $1 AND s.entrepot_id = $2`,
     [produitId, entrepotId]
   );
   const r = rows[0];
-  if (!r || r.stock_critique == null || r.stock_critique <= 0) return false;
-  if (Number(r.quantite) > Number(r.stock_critique)) return false;
+  if (!r) return false;
 
-  // Seuil atteint / franchi → alerte (non bloquant)
-  notificationService.alerterRuptureStock({
-    libelle: r.libelle,
-    quantite_actuelle: r.quantite,
-    stock_critique: r.stock_critique,
-  }).catch(err => console.error('❌ Alerte seuil critique échouée:', err));
+  const seuilDefini = r.stock_critique != null && Number(r.stock_critique) > 0;
+  const sousSeuil = seuilDefini && Number(r.quantite) <= Number(r.stock_critique);
 
-  return true;
+  if (sousSeuil) {
+    // Déjà alerté pour cette descente → on ne renvoie rien (anti-spam).
+    if (r.alerte_seuil_envoyee) return false;
+    // Premier franchissement → on mémorise puis on alerte (non bloquant).
+    await db.query('UPDATE stocks SET alerte_seuil_envoyee = TRUE WHERE id = $1', [r.id]);
+    notificationService.alerterRuptureStock({
+      libelle: r.libelle,
+      quantite_actuelle: r.quantite,
+      stock_critique: r.stock_critique,
+    }).catch(err => console.error('❌ Alerte seuil critique échouée:', err));
+    return true;
+  }
+
+  // Stock repassé au-dessus du seuil (ou seuil retiré) → ré-armement de l'alerte.
+  if (r.alerte_seuil_envoyee) {
+    await db.query('UPDATE stocks SET alerte_seuil_envoyee = FALSE WHERE id = $1', [r.id]);
+  }
+  return false;
 }
 
 module.exports = { ajusterStock, verifierSeuilCritique };
