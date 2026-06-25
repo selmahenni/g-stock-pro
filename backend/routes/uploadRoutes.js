@@ -9,7 +9,10 @@ const { supabase, bucket, estConfigure } = require('../config/supabase');
 const router = express.Router();
 
 // Dossier de repli LOCAL (utilisé uniquement si Supabase Storage n'est pas configuré).
-const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+// process.cwd() au lieu de __dirname : reste défini même si le backend est empaqueté
+// en ESM (ex. @vercel/node sur Vercel, où __dirname n'existe pas). En local (process
+// lancé depuis /backend) le chemin résolu est identique.
+const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
 
 // On garde l'image EN MÉMOIRE : on l'envoie ensuite vers Supabase (ou on l'écrit en repli).
 const TYPES_AUTORISES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];

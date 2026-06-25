@@ -36,9 +36,10 @@ app.use(journaliser);
 
 // 5. Sert les images téléversées en statique (/uploads).
 //    CORP 'cross-origin' pour autoriser l'affichage depuis le front (port 3000).
+// process.cwd() au lieu de __dirname : reste défini même empaqueté en ESM (@vercel/node).
 app.use(
   '/uploads',
-  express.static(path.join(__dirname, 'uploads'), {
+  express.static(path.join(process.cwd(), 'uploads'), {
     setHeaders: (res) => res.set('Cross-Origin-Resource-Policy', 'cross-origin'),
   })
 );
