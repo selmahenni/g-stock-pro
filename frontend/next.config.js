@@ -2,14 +2,18 @@
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // 1. Définition globale des variables d'environnement au Build
+  env: {
+    // Si la variable n'existe pas sur Vercel, on force une chaîne vide
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || '',
+  },
+  
+  // 2. Le Proxy (Rewrite) vers ton Backend
   async rewrites() {
     return [
       {
-        // Intercepte toutes les requêtes frontend commençant par /api/
         source: '/api/:path*',
-        // Et les redirige silencieusement vers ton backend
-        // 🔴 ATTENTION : Remplace cette URL par l'URL exacte de ton backend
-        destination: 'https://g-stock-pro-backend.vercel.app/api/:path*' 
+        destination: 'https://g-stock-pro-backend.vercel.app/api/:path*'
       }
     ];
   }
