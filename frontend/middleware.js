@@ -1,8 +1,4 @@
-// frontend/middleware.js
 import { NextResponse } from 'next/server';
-
-// 🔴 LIGNE CRUCIALE : Force Vercel à utiliser l'environnement Edge (évite la compilation Node/CommonJS)
-export const runtime = 'edge';
 
 const ROUTE_ROLES = {
   '/utilisateurs': ['super_admin'],
@@ -83,7 +79,7 @@ export function middleware(request) {
 }
 
 export const config = {
-  // 🔴 MATCHER SÉCURISÉ : On exclut TOUS les fichiers avec une extension (images, css, json, js, pwa...)
+  // MATCHER SÉCURISÉ : On exclut TOUS les fichiers statiques et API
   matcher: [
     '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|json|js|css|woff|woff2|ttf|eot)$).*)',
   ],
