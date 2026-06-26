@@ -1,4 +1,8 @@
+// frontend/middleware.js
 import { NextResponse } from 'next/server';
+
+// 🔴 LIGNE CRUCIALE : Force Vercel à utiliser l'environnement Edge (évite la compilation Node/CommonJS)
+export const runtime = 'edge';
 
 const ROUTE_ROLES = {
   '/utilisateurs': ['super_admin'],
@@ -18,23 +22,23 @@ function lireRole(token) {
 
     const payload = parts[1];
     const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
     
-    // Décodage robuste pour Vercel Edge Runtime (Support absolu de l'UTF-8)
+    // Padding sécurisé pour éviter que atob() ne crash
+    const padding = (4 - (base64.length % 4)) % 4;
+    const padded = base64.padEnd(base64.length + padding, '=');
+
+    // Décodage robuste compatible avec le Edge Runtime de Vercel (support UTF-8)
     const binString = atob(padded);
     const bytes = new Uint8Array(binString.length);
     for (let i = 0; i < binString.length; i++) {
       bytes[i] = binString.charCodeAt(i);
     }
     const decodedString = new TextDecoder().decode(bytes);
-    
     const decoded = JSON.parse(decodedString);
-    
-    // Jeton expiré -> considéré comme non authentifié
+
     if (decoded.exp && decoded.exp * 1000 < Date.now()) return null;
     return decoded.role || null;
   } catch (error) {
-    // L'ajout de (error) est requis par certains compilateurs stricts sur Vercel
     return null;
   }
 }
@@ -42,22 +46,15 @@ function lireRole(token) {
 export function middleware(request) {
   const { pathname } = request.nextUrl;
 
-  // Laisser passer l'API, les ressources Next et les fichiers statiques
-  if (pathname.startsWith('/_next') || pathname.startsWith('/api') || pathname.includes('.')) {
-    return NextResponse.next();
-  }
-
   const token = request.cookies.get('token')?.value;
   const role = token ? lireRole(token) : null;
-  
-  // Utilisation de startsWith pour éviter les boucles de redirection avec les trailing slashes
   const isLogin = pathname.startsWith('/login');
 
   // 1) Utilisateur NON authentifié (401)
   if (!role) {
     if (isLogin) return NextResponse.next();
     
-    // Construction d'URL sécurisée pour Vercel Edge
+    // Construction d'URL absolue requise par Vercel Edge
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = '/login';
     loginUrl.searchParams.set('error', 'unauthorized');
@@ -72,7 +69,7 @@ export function middleware(request) {
     return NextResponse.redirect(homeUrl);
   }
 
-  // 3) Authentifié mais rôle INSUFFISANT (403) -> réécriture vers /403
+  // 3) Authentifié mais rôle INSUFFISANT (403)
   const routeRestreinte = Object.keys(ROUTE_ROLES).find(
     (base) => pathname === base || pathname.startsWith(base + '/')
   );
@@ -86,7 +83,8 @@ export function middleware(request) {
 }
 
 export const config = {
+  // 🔴 MATCHER SÉCURISÉ : On exclut TOUS les fichiers avec une extension (images, css, json, js, pwa...)
   matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|json|js|css|woff|woff2|ttf|eot)$).*)',
   ],
 };
