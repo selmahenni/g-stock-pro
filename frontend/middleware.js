@@ -10,77 +10,63 @@ const ROUTE_ROLES = {
   '/maintenances': ['super_admin', 'technicien', 'consultant'],
 };
 
+// Fonction de décodage JWT 100% sécurisée pour le Edge Runtime
 function lireRole(token) {
+  if (!token) return null;
   try {
-    if (!token) return null;
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-
-    const payload = parts[1];
-    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const payload = token.split('.')[1];
+    if (!payload) return null;
     
-    // Padding sécurisé pour éviter que atob() ne crash
-    const padding = (4 - (base64.length % 4)) % 4;
-    const padded = base64.padEnd(base64.length + padding, '=');
-
-    // Décodage robuste compatible avec le Edge Runtime de Vercel (support UTF-8)
-    const binString = atob(padded);
-    const bytes = new Uint8Array(binString.length);
-    for (let i = 0; i < binString.length; i++) {
-      bytes[i] = binString.charCodeAt(i);
-    }
-    const decodedString = new TextDecoder().decode(bytes);
-    const decoded = JSON.parse(decodedString);
-
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    
+    const decoded = JSON.parse(jsonPayload);
     if (decoded.exp && decoded.exp * 1000 < Date.now()) return null;
     return decoded.role || null;
-  } catch (error) {
+  } catch (err) {
     return null;
   }
 }
 
 export function middleware(request) {
   const { pathname } = request.nextUrl;
-
   const token = request.cookies.get('token')?.value;
   const role = token ? lireRole(token) : null;
   const isLogin = pathname.startsWith('/login');
 
-  // 1) Utilisateur NON authentifié (401)
+  // 1) Utilisateur NON authentifié
   if (!role) {
     if (isLogin) return NextResponse.next();
-    
-    // Construction d'URL absolue requise par Vercel Edge
-    const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = '/login';
+    const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('error', 'unauthorized');
     return NextResponse.redirect(loginUrl);
   }
 
-  // 2) Déjà authentifié et tente d'aller sur /login -> renvoi vers l'accueil
+  // 2) Utilisateur authentifié -> bloque l'accès à la page de login
   if (isLogin) {
-    const homeUrl = request.nextUrl.clone();
-    homeUrl.pathname = '/';
-    homeUrl.searchParams.delete('error');
-    return NextResponse.redirect(homeUrl);
+    return NextResponse.redirect(new URL('/', request.url));
   }
 
-  // 3) Authentifié mais rôle INSUFFISANT (403)
+  // 3) Vérification RBAC
   const routeRestreinte = Object.keys(ROUTE_ROLES).find(
     (base) => pathname === base || pathname.startsWith(base + '/')
   );
+
   if (routeRestreinte && !ROUTE_ROLES[routeRestreinte].includes(role)) {
-    const forbiddenUrl = request.nextUrl.clone();
-    forbiddenUrl.pathname = '/403';
-    return NextResponse.rewrite(forbiddenUrl);
+    return NextResponse.rewrite(new URL('/403', request.url));
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  // MATCHER SÉCURISÉ : On exclut TOUS les fichiers statiques et API
   matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|json|js|css|woff|woff2|ttf|eot)$).*)',
+    /* Exclut les routes API, les fichiers statiques Next, et tous les fichiers avec extension (images, css, etc.) */
+    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.[^/]*$).*)',
   ],
 };
