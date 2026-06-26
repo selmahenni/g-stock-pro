@@ -24,6 +24,15 @@ app.use(cors({
   credentials: true                // Permet l'envoi et la réception des cookies HTTP-Only
 }));
 
+// 🔴 MIDDLEWARE DE DIAGNOSTIC RÉSEAU (À RETIRER AVANT LA PRODUCTION FINALE)
+app.use((req, res, next) => {
+  console.log(`\n📡 [API-LOG] ${req.method} ${req.originalUrl}`);
+  console.log(`🌍 Origin de la requête : ${req.headers.origin || 'Non spécifiée (ex: Bruno/Postman)'}`);
+  console.log(`📦 FRONTEND_URL configuré en ENV : ${process.env.FRONTEND_URL || 'Non défini'}`);
+  console.log(`🍪 Cookies reçus par le serveur :`, req.cookies || 'Aucun cookie');
+  next();
+});
+
 // 3. Permet de lire le JSON dans le corps des requêtes (req.body)
 app.use(express.json()); 
 

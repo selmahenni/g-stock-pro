@@ -21,43 +21,55 @@ export default function LoginPage() {
     } catch { /* ignore */ }
   }, []);
 
-  const handleSubmit = async (e) => {
+const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
+    const targetUrl = (process.env.NEXT_PUBLIC_API_URL || '') + '/api/utilisateurs/connexion';
+    
+    console.log("🌐 [FRONT-LOG] Déclenchement de la soumission du formulaire");
+    console.log("🔗 [FRONT-LOG] NEXT_PUBLIC_API_URL configurée :", process.env.NEXT_PUBLIC_API_URL);
+    console.log("🚀 [FRONT-LOG] URL finale appelée :", targetUrl);
+
     try {
-      const res = await fetch(process.env.NEXT_PUBLIC_API_URL + '/api/utilisateurs/connexion', {
+      const res = await fetch(targetUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        credentials: 'include', // Important pour recevoir le cookie JWT
+        credentials: 'include', // Impératif pour l'échange de cookies
         body: JSON.stringify({
           adresse_email: email,
           mot_de_passe: password,
         }),
       });
 
+      console.log("📡 [FRONT-LOG] Réponse HTTP reçue du serveur");
+      console.log("📊 [FRONT-LOG] Status Code :", res.status, res.statusText);
+
       const data = await res.json();
 
       if (!res.ok) {
+        console.warn("⚠️ [FRONT-LOG] Le serveur a rejeté la requête :", data.message);
         throw new Error(data.message || 'Identifiants invalides');
       }
 
-      // Connexion réussie : Le navigateur a stocké le cookie HTTP-Only.
-      // On stocke les infos de profil dans localStorage pour le frontend (RBAC visuel).
+      console.log("👑 [FRONT-LOG] Authentification validée par l'API. Profil :", data.utilisateur);
+      
       if (data.utilisateur) {
         localStorage.setItem('userRole', data.utilisateur.role);
         localStorage.setItem('userName', data.utilisateur.nom);
         localStorage.setItem('userId', data.utilisateur.id);
+        console.log("💾 [FRONT-LOG] Profil stocké dans le localStorage local.");
       }
 
-      // On redirige l'utilisateur vers le dashboard.
+      console.log("🔄 [FRONT-LOG] Redirection vers le tableau de bord...");
       window.location.href = '/';
       
     } catch (err) {
+      console.error("❌ [FRONT-LOG] Erreur capturée lors du workflow de connexion :", err.message);
       setError(err.message);
       setLoading(false);
     }

@@ -8,12 +8,10 @@ const auditService = require('../services/auditService');
 const createUtilisateur = async (req, res) => {
   try {
     const { nom, adresse_email, mot_de_passe, role } = req.body;
-
     const utilisateurExistant = await Utilisateur.findByEmail(adresse_email);
     if (utilisateurExistant) {
       return res.status(400).json({ message: "Cet email est déjà enregistré." });
     }
-
     const salt = await bcrypt.genSalt(10);
     const motDePasseHache = await bcrypt.hash(mot_de_passe, salt);
 
@@ -34,7 +32,6 @@ const createUtilisateur = async (req, res) => {
         role: nouvelUtilisateur.role
       }
     });
-
   } catch (error) {
     console.error("Erreur serveur lors de l'inscription :", error);
     return res.status(500).json({ message: "Erreur lors de l'inscription", erreur: error.message });
@@ -42,16 +39,15 @@ const createUtilisateur = async (req, res) => {
 };
 
 const connexion = async (req, res) => {
+  console.log("🔐 [AUTH-BACK] Début de la tentative de connexion pour :", req.body.adresse_email);
   try {
     const { adresse_email, mot_de_passe } = req.body;
-
     const utilisateur = await Utilisateur.findByEmail(adresse_email);
     
-    const isMatch = utilisateur
-      ? await bcrypt.compare(mot_de_passe, utilisateur.hash_mot_de_passe)
-      : false;
+    const isMatch = utilisateur ? await bcrypt.compare(mot_de_passe, utilisateur.hash_mot_de_passe) : false;
 
     if (!utilisateur || !isMatch) {
+      console.warn("❌ [AUTH-BACK] Échec d'authentification : Identifiants invalides pour", adresse_email);
       auditService.enregistrer({
         utilisateur_id: utilisateur?.id || null,
         action: 'connexion_echec',
@@ -63,6 +59,7 @@ const connexion = async (req, res) => {
     }
 
     if (!utilisateur.est_actif) {
+      console.warn("🚫 [AUTH-BACK] Compte désactivé pour", adresse_email);
       auditService.enregistrer({
         utilisateur_id: utilisateur.id,
         action: 'connexion_echec',
@@ -73,17 +70,20 @@ const connexion = async (req, res) => {
       return res.status(403).json({ message: "Votre compte a été désactivé. Veuillez contacter un administrateur." });
     }
 
+    console.log("✅ [AUTH-BACK] Identifiants valides. Génération du token pour", utilisateur.nom_complet);
     const payload = { id: utilisateur.id, role: utilisateur.role };
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' });
 
-    // 🔴 CORRECTION CROSS-ORIGIN ICI
     const isProd = process.env.NODE_ENV === 'production';
-    res.cookie('token', token, {
+    const cookieOptions = {
       httpOnly: true,
-      secure: isProd, // Obligatoire si SameSite='none' (HTTPS requis)
-      sameSite: isProd ? 'none' : 'lax', // 'none' autorise le partage entre Vercel et ton backend
+      secure: isProd, 
+      sameSite: isProd ? 'none' : 'lax', 
       maxAge: 24 * 60 * 60 * 1000
-    });
+    };
+
+    console.log(`🍪 [AUTH-BACK] Paramétrage du Cookie : Secure=${cookieOptions.secure}, SameSite=${cookieOptions.sameSite}`);
+    res.cookie('token', token, cookieOptions);
 
     auditService.enregistrer({
       utilisateur_id: utilisateur.id,
@@ -99,13 +99,13 @@ const connexion = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Erreur de connexion:", error);
+    console.error("❌ [AUTH-BACK] Erreur critique serveur lors de la connexion:", error);
     return res.status(500).json({ message: "Erreur serveur lors de la connexion", erreur: error.message });
   }
 };
 
 const deconnexion = (req, res) => {
-  // 🔴 CORRECTION CROSS-ORIGIN ICI (Même logique pour supprimer le cookie)
+  console.log("🚪 [AUTH-BACK] Demande de déconnexion reçue");
   const isProd = process.env.NODE_ENV === 'production';
   res.clearCookie('token', {
     httpOnly: true,
@@ -234,7 +234,7 @@ const toggleStatut = async (req, res) => {
     const nouveauStatut = !utilisateur.est_actif;
     const maj = await Utilisateur.update(id, {
       role: utilisateur.role,
-      nom_complet: utilisateur.nom_complet,
+      nom_complet: pool.nom_complet,
       adresse_email: utilisateur.adresse_email,
       est_actif: nouveauStatut,
     });
